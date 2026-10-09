@@ -22,7 +22,7 @@ design notes.
   epoch's weights were returned.
 
 **Definitions used below.** The monitored value is `val_loss`; lower is
-better. The **best epoch** is the epoch with the lowest `val_loss`
+better. The **best epoch** is the epoch with the lowest *finite* `val_loss`
 seen so far, earliest on ties. A **significant improvement** at epoch `e`
 means `val_loss[e] < r - min_delta`, where `r` is the value at the last
 significant improvement (epoch 1 is always significant). Significance only
@@ -34,7 +34,7 @@ drives the patience counter; the best epoch moves on *any* decrease.
       `TrainingConfig()`, training stops with `stop_reason ==
       "patience_exhausted"` and `epochs_run <= 60`.
 - [ ] AC2: With `restore_best=True` (default), after `train()` returns,
-      `model.loss(x_val, y_val)` equals the lowest `val_loss` in
+      `model.loss(x_val, y_val)` equals the lowest finite `val_loss` in
       `history`, and `result.best_epoch` is that epoch (earliest on ties).
 - [ ] AC3: Training stops at the first epoch where the number of
       non-warm-up epochs since the last significant improvement equals
@@ -42,9 +42,11 @@ drives the patience counter; the best epoch moves on *any* decrease.
 - [ ] AC4: A decrease of `min_delta` or less from `r` does not reset the
       patience counter, but can still become the best epoch.
 - [ ] AC5: Epochs `1..start_from_epoch` are not monitored.
-- [ ] AC6: If the loss becomes `nan` or `inf`, training stops at once with
-      `stop_reason == "non_finite_metric"` and the best weights are
-      restored.
+- [ ] AC6: If `val_loss` is `nan`, `inf`, or `-inf` at epoch `k`, training
+      stops after epoch `k` with `stop_reason == "non_finite_metric"`. The
+      training loss is not checked. If a finite best exists and
+      `restore_best`, it is restored. If `k == 1`, `best_epoch` and
+      `best_val_loss` are `None` and `restored_best` is `False`.
 - [ ] AC7: With `restore_best=False`, the model keeps the weights from the
       last completed epoch.
 - [ ] AC8: `EarlyStopping` raises `ConfigError` at construction when
@@ -92,6 +94,7 @@ drives the patience counter; the best epoch moves on *any* decrease.
 - Relative (percentage) `min_delta`.
 - Learning-rate schedules or reduce-on-plateau.
 - Checkpointing to disk or resuming after the process exits.
+- Stopping on a non-finite *training* loss while validation loss is finite.
 
 ## 6. Definition of done
 
