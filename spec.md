@@ -26,7 +26,8 @@ better. The **best epoch** is the epoch with the lowest *finite* `val_loss`
 seen so far, earliest on ties. A **significant improvement** at epoch `e`
 means `val_loss[e] < r - min_delta`, where `r` is the value at the last
 significant improvement (epoch 1 is always significant). Significance only
-drives the patience counter; the best epoch moves on *any* decrease.
+drives the patience counter; the best epoch moves on *any* decrease. Warm-up
+epochs (`1..start_from_epoch`) can be the best epoch and can set `r`.
 
 ## 3. Acceptance criteria
 
@@ -41,11 +42,12 @@ drives the patience counter; the best epoch moves on *any* decrease.
       `patience`.
 - [ ] AC4: A decrease of `min_delta` or less from `r` does not reset the
       patience counter, but can still become the best epoch.
-- [ ] AC5: Epochs `1..start_from_epoch` are not monitored.
+- [ ] AC5: Epochs `1..start_from_epoch` never advance the patience counter.
+      Warm-up affects nothing else.
 - [ ] AC6: If `val_loss` is `nan`, `inf`, or `-inf` at epoch `k`, training
-      stops after epoch `k` with `stop_reason == "non_finite_metric"`. The
-      training loss is not checked. If a finite best exists and
-      `restore_best`, it is restored. If `k == 1`, `best_epoch` and
+      stops after epoch `k` with `stop_reason == "non_finite_metric"`, even
+      during warm-up. The training loss is not checked. If a finite best
+      exists and `restore_best`, it is restored. If `k == 1`, `best_epoch` and
       `best_val_loss` are `None` and `restored_best` is `False`.
 - [ ] AC7: With `restore_best=False`, the model keeps the weights from the
       last completed epoch.
