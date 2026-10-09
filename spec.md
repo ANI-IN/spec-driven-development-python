@@ -22,10 +22,11 @@ design notes.
   epoch's weights were returned.
 
 **Definitions used below.** The monitored value is `val_loss`; lower is
-better. The **best epoch** is the epoch of the last
-significant improvement, where a **significant improvement** at epoch `e`
-means `val_loss[e] < b - min_delta` and `b` is the `val_loss` of the best
-epoch so far (epoch 1 is always significant).
+better. The **best epoch** is the epoch with the lowest `val_loss`
+seen so far, earliest on ties. A **significant improvement** at epoch `e`
+means `val_loss[e] < r - min_delta`, where `r` is the value at the last
+significant improvement (epoch 1 is always significant). Significance only
+drives the patience counter; the best epoch moves on *any* decrease.
 
 ## 3. Acceptance criteria
 
@@ -38,8 +39,8 @@ epoch so far (epoch 1 is always significant).
 - [ ] AC3: Training stops at the first epoch where the number of
       non-warm-up epochs since the last significant improvement equals
       `patience`.
-- [ ] AC4: A decrease of `min_delta` or less does not reset the patience
-      counter.
+- [ ] AC4: A decrease of `min_delta` or less from `r` does not reset the
+      patience counter, but can still become the best epoch.
 - [ ] AC5: Epochs `1..start_from_epoch` are not monitored.
 - [ ] AC6: If the loss becomes `nan` or `inf`, training stops at once with
       `stop_reason == "non_finite_metric"` and the best weights are
