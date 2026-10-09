@@ -14,10 +14,15 @@ alternatives.
 
 ## Decision 1: Atomic write mechanics
 
-**Decision**: open `<target>.tmp.<pid>.<16 hex chars>` with `O_CREAT | O_EXCL`,
+**Decision**: open `<target>.tmp.<pid>.<16 hex chars>` with `O_CREAT | O_EXCL`
+(and `O_BINARY` where it exists, so Windows does not translate newlines),
 write all bytes, `os.fsync` the file, close it, `os.replace(temp, target)`,
 then `fsync` the target's directory. On any failure before the replace, delete
-the temp file and re-raise.
+the temp file and re-raise. If the directory did not exist, create it and
+`fsync` its parent first. Once the replace has happened the new bytes *are*
+the store, so a failed directory `fsync` after it is not raised (raising would
+make the service report a failure for a change that is already on disk); the
+helper returns `False` and the repository logs `store.write_not_durable`.
 
 **Rationale**:
 
@@ -55,6 +60,7 @@ the temp file and re-raise.
 | `RunAlreadyFinishedError` | 409 | `{"error": "already_finished", "message"}` |
 | `StoreWriteError` | 500 | `{"error": "internal_error", "message": "write failed"}` |
 | `StoreCorruptError` | 500 | `{"error": "internal_error", "message": "store is corrupt"}` (normally seen only at startup, see Decision 5) |
+| Framework `HTTPException` (unknown path, wrong method) | 404 / 405 / 400 | `{"error": "not_found" \| "method_not_allowed" \| "bad_request", "message"}` |
 | Any other exception | 500 | `{"error": "internal_error", "message": "unexpected error"}`, logged with its stack |
 
 **Rationale**: keeps constitution III (branch on class, never on text) and IV
@@ -91,14 +97,22 @@ Indented JSON makes the store easy to read when debugging.
 ## Decision 5: Startup and shutdown
 
 **Decision**: `main.build()` loads settings and the store and returns the app.
-`main.main()` maps failures to exit codes: `1` for a corrupt store (after
-quarantine), `2` for invalid configuration, `0` after a clean shutdown. It logs
-`server.started` (with `store_existed` and `run_count`), `server.start_failed`
-(with a `reason`), and `server.stopped`.
+`main.serve()` runs Uvicorn and logs `server.started` (with `store_existed`
+and `run_count`) only after the socket is listening. `main.main()` maps
+failures to exit codes: `1` for a corrupt store (after quarantine), `2` for
+invalid configuration, `3` when the server cannot start (for example, the
+port is taken), and `0` after a clean shutdown from Ctrl+C or SIGTERM. Every
+failure logs `server.start_failed` with a `reason`; a clean shutdown logs
+`server.stopped`.
 
-**Rationale**: splitting `build` from `main` lets tests check startup
-behavior without starting a server. Distinct exit codes let a supervisor tell
-"fix the config" from "inspect the quarantined store".
+**Rationale**: splitting `build` from `serve` lets tests check startup
+behavior without starting a server. Logging `server.started` after the bind
+means the line never claims a server that is not there. Uvicorn re-raises the
+SIGTERM it handled once it has shut down, which would kill the process before
+the shutdown line; the entry point installs a no-op SIGTERM handler around
+`serve()` so the re-raised signal is absorbed. Distinct exit codes let a
+supervisor tell "fix the config" from "inspect the quarantined store" from
+"free the port".
 
 ## Decision 6: Serializing writes and in-memory state
 

@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 import pytest
 
+from experiment_runs.errors import InvalidRecordError
 from experiment_runs.models import Run, format_timestamp, parse_timestamp
 
 STARTED = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
@@ -34,8 +34,10 @@ def test_timestamps_round_trip_in_utc() -> None:
 
 
 def test_parse_timestamp_rejects_naive_times() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidRecordError):
         parse_timestamp("2026-10-01T09:00:00")
+    with pytest.raises(InvalidRecordError):
+        parse_timestamp("yesterday")
 
 
 def test_record_round_trip() -> None:
@@ -63,23 +65,43 @@ def test_running_run_round_trip() -> None:
         ("time_budget_minutes", True),
         ("metrics", {"auc": "high"}),
         ("metrics", None),
+        ("metrics", {"auc": 10**400}),
         ("started_at", "yesterday"),
     ],
 )
-def test_from_record_rejects_impossible_records(key: str, value: Any) -> None:
+def test_from_record_rejects_impossible_records(key: str, value: object) -> None:
     record = finished_run().to_record()
     record[key] = value
-    with pytest.raises((ValueError, TypeError)):
+    with pytest.raises(InvalidRecordError):
+        Run.from_record(record)
+
+
+def running_run_record() -> dict[str, object]:
+    return Run(id="a", name="n", model_type="m", started_at=STARTED).to_record()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("metrics", {"auc": 0.5}),
+        ("finished_at", "2026-10-01T10:00:00.000Z"),
+        ("finished_at", ""),
+    ],
+)
+def test_running_records_cannot_carry_results(key: str, value: object) -> None:
+    record = running_run_record()
+    record[key] = value
+    with pytest.raises(InvalidRecordError):
         Run.from_record(record)
 
 
 def test_from_record_rejects_missing_fields() -> None:
     record = finished_run().to_record()
     del record["model_type"]
-    with pytest.raises(KeyError):
+    with pytest.raises(InvalidRecordError):
         Run.from_record(record)
 
 
 def test_from_record_rejects_non_objects() -> None:
-    with pytest.raises(TypeError):
+    with pytest.raises(InvalidRecordError):
         Run.from_record(["not", "a", "dict"])

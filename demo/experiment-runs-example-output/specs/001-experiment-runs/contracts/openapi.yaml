@@ -47,6 +47,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Run"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /runs/{run_id}/finish:
     post:
       operationId: finishRun
@@ -120,13 +122,11 @@ components:
         name:
           type: string
           minLength: 1
-          maxLength: 200
-          description: Trimmed; must not be blank.
+          description: Must not be blank; at most 200 characters after trimming.
         model_type:
           type: string
           minLength: 1
-          maxLength: 100
-          description: Trimmed; must not be blank.
+          description: Must not be blank; at most 100 characters after trimming.
         hyperparameters:
           type: object
           maxProperties: 50
@@ -202,7 +202,13 @@ components:
       properties:
         error:
           type: string
-          enum: [validation_error, not_found, already_finished, internal_error]
+          enum:
+            - validation_error
+            - not_found
+            - already_finished
+            - method_not_allowed
+            - bad_request
+            - internal_error
         message: {type: string}
         details:
           type: array

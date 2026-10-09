@@ -56,8 +56,10 @@ def _log_outcome(
 ) -> None:
     """FR-016: one line per request, with the operation and its outcome."""
     route = request.scope.get("route")
+    # On 405 Starlette leaves a partially matched route in scope; ignore it.
+    matched = isinstance(route, Route) and status != 405
     fields: dict[str, object] = {
-        "operation": route.name if isinstance(route, Route) else "unknown",
+        "operation": route.name if matched and isinstance(route, Route) else "unknown",
         "method": request.method,
         "path": request.url.path,
         "status": status,

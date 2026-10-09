@@ -8,7 +8,10 @@ your own run against, phase by phase.
 
 Your run will not match it word for word. The agent words things differently
 each time, and it may ask different clarifying questions. Compare the
-**structure and the decisions**, not the prose.
+**structure and the decisions**, not the prose. The artifacts here were also
+edited after generation: for clarity, to apply the analyze remediations
+(which you ask Claude to make after `/speckit-analyze` reports them), and to
+fold in fixes from a code review of the generated service.
 
 Checked on 2026-10-10 against Spec Kit v1.1.2 with Python 3.12: all pytest
 tests pass, `mypy --strict` is clean, and `ruff check` and `ruff format
@@ -26,16 +29,16 @@ tests pass, `mypy --strict` is clean, and `ruff check` and `ruff format
 | `specs/001-experiment-runs/data-model.md` | Entities, invariants, state transitions, validation rules | `/speckit-plan` (Phase 1) |
 | `specs/001-experiment-runs/contracts/openapi.yaml` | OpenAPI 3.1 contract for the four endpoints | `/speckit-plan` (Phase 1) |
 | `specs/001-experiment-runs/quickstart.md` | Manual QA scenarios with curl | `/speckit-plan` (Phase 1) |
-| `specs/001-experiment-runs/tasks.md` | 35 tasks across 7 phases, with `[P]` markers, story tags, and the analyze remediations | `/speckit-tasks` + `/speckit-analyze` |
+| `specs/001-experiment-runs/tasks.md` | 37 tasks across 7 phases, with `[P]` markers, story tags, and the analyze remediations | `/speckit-tasks`, then edits after `/speckit-analyze` |
 | `src/experiment_runs/` | The service: 13 modules plus `__init__.py` | `/speckit-implement` |
-| `tests/` | One pytest module per source module, plus crash, restart, and latency tests | `/speckit-implement` |
+| `tests/` | pytest modules for each layer, plus crash, restart, real-process, and latency tests | `/speckit-implement` |
 | `pyproject.toml` | Packaging, dependencies, and Ruff, mypy, and pytest settings | `/speckit-implement` |
 | `README.md` | Project README for the generated service | `/speckit-implement` |
 
 ## What is NOT in here (deliberately)
 
-- **`.claude/skills/`, `.specify/templates/`, `.specify/scripts/`, and the
-  integration manifests**: they are identical to the untouched scaffold in
+- **`.claude/skills/`, `.specify/templates/`, `.specify/scripts/`,
+  `.specify/workflows/`, and the integration manifests**: they are identical to the untouched scaffold in
   [../experiment-runs-reference/](../experiment-runs-reference/), so they are
   not duplicated here.
 - **`.specify/feature.json`**: Spec Kit's own `.specify/.gitignore` marks it
@@ -48,7 +51,7 @@ tests pass, `mypy --strict` is clean, and `ruff check` and `ruff format
 ```bash
 cd demo/experiment-runs-example-output
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 pytest
 ```
@@ -73,7 +76,7 @@ The prompts are in the [demo README](../README.md):
   answered with the recommended option.
 - **Plan**: the Python, FastAPI, Pydantic, and pytest stack from
   *Phase 2: Plan*.
-- **Tasks**: 35 tasks across 7 phases after remediation.
+- **Tasks**: 37 tasks across 7 phases after remediation.
 - **Analyze remediations applied**: G1 (latency test for SC-004), G2
   (automated restart-cycle test for SC-006), G3 (request-log assertions for
   FR-016), G4 (startup-log assertions for FR-018), U1 (`schema_version`

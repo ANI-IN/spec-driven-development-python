@@ -42,6 +42,10 @@ class RunAlreadyFinishedError(AppError):
     """The run already has final metrics; they cannot be replaced."""
 
 
+class InvalidRecordError(AppError):
+    """A stored record breaks the data model; the store counts as corrupt."""
+
+
 class StoreCorruptError(AppError):
     """The store file could not be read or parsed and was quarantined."""
 

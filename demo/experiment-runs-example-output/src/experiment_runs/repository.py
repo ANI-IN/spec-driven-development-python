@@ -15,7 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from experiment_runs.atomic_write import atomic_write_bytes
-from experiment_runs.errors import StoreCorruptError, StoreWriteError
+from experiment_runs.errors import (
+    InvalidRecordError,
+    StoreCorruptError,
+    StoreWriteError,
+)
 from experiment_runs.logger import EventLogger
 from experiment_runs.models import Run
 
@@ -45,7 +49,13 @@ class RunRepository:
         try:
             document = json.loads(self.store_path.read_bytes())
             runs = _parse_document(document)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            InvalidRecordError,
+        ) as exc:
             quarantined = self._quarantine()
             self._logger.log(
                 "store.quarantined",
@@ -75,7 +85,7 @@ class RunRepository:
         data = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
         with self._write_lock:
             try:
-                atomic_write_bytes(self.store_path, data)
+                durable = atomic_write_bytes(self.store_path, data)
             except OSError as exc:
                 self._logger.log(
                     "store.write",
@@ -84,6 +94,12 @@ class RunRepository:
                     error=str(exc),
                 )
                 raise StoreWriteError(f"could not write store: {exc}") from exc
+        if not durable:
+            self._logger.log(
+                "store.write_not_durable",
+                count=len(runs),
+                reason="directory fsync failed after rename",
+            )
         self._logger.log("store.write", outcome="success", count=len(runs))
 
     def _quarantine(self) -> Path:
@@ -100,14 +116,14 @@ class RunRepository:
 
 def _parse_document(document: object) -> list[Run]:
     if not isinstance(document, dict):
-        raise TypeError("store must be a JSON object")
+        raise InvalidRecordError("store must be a JSON object")
     version = document.get("schema_version")
     if version != SCHEMA_VERSION:
-        raise ValueError(f"unsupported schema_version: {version!r}")
+        raise InvalidRecordError(f"unsupported schema_version: {version!r}")
     records = document.get("runs")
     if not isinstance(records, list):
-        raise TypeError("store 'runs' must be a list")
+        raise InvalidRecordError("store 'runs' must be a list")
     runs = [Run.from_record(record) for record in records]
     if len({run.id for run in runs}) != len(runs):
-        raise ValueError("store contains duplicate run ids")
+        raise InvalidRecordError("store contains duplicate run ids")
     return runs

@@ -61,6 +61,10 @@ def make_dataset(
 
     order = rng.permutation(n_samples)
     n_val = int(round(n_samples * val_fraction))
+    if not 0 < n_val < n_samples:
+        raise ValueError(
+            f"n_samples={n_samples} and val_fraction={val_fraction} leave a split empty"
+        )
     val_idx, train_idx = order[:n_val], order[n_val:]
     return Dataset(
         x_train=x[train_idx],

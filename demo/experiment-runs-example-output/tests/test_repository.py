@@ -62,6 +62,7 @@ def test_store_file_has_a_schema_version(
         b'{"schema_version": 2, "runs": []}',
         b'{"schema_version": 1, "runs": {}}',
         b'{"schema_version": 1, "runs": [{"id": "x"}]}',
+        b"[" * 100_000 + b"]" * 100_000,
     ],
 )
 def test_corrupt_store_is_quarantined_and_raises(
@@ -177,3 +178,12 @@ def test_concurrent_saves_never_interleave(
     for thread in threads:
         thread.join()
     assert overlaps == 0
+
+
+def test_a_write_that_is_not_confirmed_durable_is_logged(
+    repository: RunRepository, monkeypatch: pytest.MonkeyPatch, logs: LogCapture
+) -> None:
+    monkeypatch.setattr(repository_module, "atomic_write_bytes", lambda t, d: False)
+    repository.save_all([make_run()])
+    assert logs.events("store.write_not_durable")[0]["count"] == 1
+    assert logs.events("store.write")[-1]["outcome"] == "success"

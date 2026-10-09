@@ -43,10 +43,12 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 - [X] T006 [P] Create `src/experiment_runs/logger.py` with `EventLogger` per FR-016 to FR-018. Standard library only. Depends on T005.
 - [X] T007 [P] Create `tests/test_config.py` asserting defaults (`127.0.0.1`, `8000`, `data/runs.json`), environment overrides, empty values falling back to defaults, and invalid `PORT` raising `ValidationError`. Test first.
 - [X] T008 [P] Create `src/experiment_runs/config.py` with `load_settings(env) -> Settings`. No side effects. Depends on T007.
-- [X] T009 Create `src/experiment_runs/error_handlers.py` mapping exception classes to the statuses and bodies in [research.md § Decision 2](./research.md), mapping FastAPI `RequestValidationError` to 400, and logging unexpected errors with their stack. Depends on T004, T006. (Covered by T018 and T031 contract tests.)
-- [X] T010 Create `src/experiment_runs/app.py` with `create_app(service, logger)`: mounts the router, registers error handlers, adds the request-log middleware that emits `request.ok` or `request.error` with `operation` and `outcome`, and disables `/docs` and `/openapi.json` (FR-019). Depends on T009.
+- [X] T009a Create `tests/test_error_handlers.py` asserting each exception class maps to exactly one status and body from [research.md § Decision 2](./research.md), and that 500 bodies never include internal details. Test first.
+- [X] T009 Create `src/experiment_runs/error_handlers.py` mapping exception classes to the statuses and bodies in [research.md § Decision 2](./research.md), mapping FastAPI `RequestValidationError` and framework `HTTPException`s to the contract's error shape, and logging unexpected errors with their stack. Depends on T004, T006, T009a.
+- [X] T010a Create `tests/test_app.py` asserting: every request logs exactly one `request.ok` or `request.error` line with `operation`, `outcome`, `status`, and `run_id` when the path has one (FR-016); unknown paths and wrong methods return the contract's error shape and log `operation: unknown`; write failures return 500 `write failed`; unexpected errors return 500 and are logged with their class; `/docs`, `/openapi.json`, `/metrics`, and `/health` return 404 (FR-019). Test first.
+- [X] T010 Create `src/experiment_runs/app.py` with `create_app(service, logger)`: mounts the router, registers error handlers, adds the request-log middleware, and disables `/docs` and `/openapi.json` (FR-019). Depends on T009, T010a.
 
-**Checkpoint**: foundational tests green. `create_app` builds an app that maps errors correctly.
+**Checkpoint**: foundational tests green. `create_app` builds an app that maps errors and logs requests correctly. (The app tests use the router, so they go green together with the US1 routes in Phase 4.)
 
 ---
 
@@ -54,15 +56,15 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 **Goal**: one atomic-write primitive and a repository that uses it. After this phase the storage layer is crash-safe before any HTTP route exists.
 
-**Independent Test**: run `pytest tests/test_atomic_write.py tests/test_repository.py tests/test_models.py`. The suite includes 50 simulated crashes and a real `SIGKILL` test (SC-002), plus quarantine on corruption (FR-013).
+**Independent Test**: run `pytest tests/test_atomic_write.py tests/test_repository.py tests/test_models.py`. The suite includes 50 simulated crashes and 25 real `SIGKILL`s (SC-002), plus quarantine on corruption (FR-013).
 
 **Why first**: US2 provides the storage every other story uses. Building US1 first would mean throwaway persistence or postponing crash safety, and both violate constitution V.
 
 ### Tests for User Story 2 (write first, must FAIL)
 
-- [X] T011 [P] [US2] Create `tests/test_atomic_write.py` asserting: (a) new content is written and replaces old content; (b) a crash during `write`, `fsync`, or `replace` leaves the target unchanged and no `*.tmp.*` file behind; (c) the temp name contains the pid and a 16-hex-char suffix; (d) the file and its directory are both fsynced; (e) 50 random simulated crashes never leave an unparsable store; (f) killing a real writer process with `SIGKILL` at random moments never leaves a partial store (POSIX only).
-- [X] T012 [P] [US2] Create `tests/test_models.py` asserting run records round-trip (running and finished), timestamps are UTC with a `Z` suffix, and `Run.from_record` rejects records `to_record` could not have produced (unknown status, blank name, nested hyperparameters, non-finite numbers, string or boolean budgets, missing fields, finished without metrics).
-- [X] T013 [P] [US2] Create `tests/test_repository.py` asserting: (a) a missing store loads empty and logs `store.initialized`; (b) saved runs load back and log `store.loaded` with the count; (c) unparsable JSON, a wrong `schema_version`, a non-list `runs`, invalid records, and duplicate ids each raise `StoreCorruptError`, rename the file to `runs.json.corrupt.<timestamp>`, and log `store.quarantined`; (d) two quarantines never overwrite each other; (e) the next start after a quarantine is empty; (f) saves go through the atomic-write helper and log `store.write` success; (g) a write failure logs the error class and raises `StoreWriteError`; (h) concurrent saves never overlap.
+- [X] T011 [P] [US2] Create `tests/test_atomic_write.py` asserting: (a) new content is written and replaces old content; (b) a crash during `write`, `fsync`, or `replace` leaves the target unchanged and no `*.tmp.*` file behind; (c) the temp name contains the pid and a 16-hex-char suffix; (d) the file and its directory are both fsynced; (e) 50 simulated crashes, each at a random one of `open`, `write`, `fsync`, `close`, or `replace`, always leave the old store; (f) killing a real writer process with `SIGKILL` 25 times at random moments never leaves a partial store (POSIX only); (g) the temp file is fsynced before the rename; (h) a failed directory fsync after the rename returns `False` instead of raising; (i) a newly created directory is fsynced too.
+- [X] T012 [P] [US2] Create `tests/test_models.py` asserting run records round-trip (running and finished), timestamps are UTC with a `Z` suffix, and `Run.from_record` rejects records `to_record` could not have produced (unknown status, blank name, nested hyperparameters, non-finite or overflowing numbers, string or boolean budgets, missing fields, finished without metrics, running with metrics or a finish time). Every rejection raises `InvalidRecordError`.
+- [X] T013 [P] [US2] Create `tests/test_repository.py` asserting: (a) a missing store loads empty and logs `store.initialized`; (b) saved runs load back and log `store.loaded` with the count; (c) unparsable JSON, a wrong `schema_version`, a non-list `runs`, invalid records, and duplicate ids each raise `StoreCorruptError`, rename the file to `runs.json.corrupt.<timestamp>`, and log `store.quarantined`; (d) two quarantines never overwrite each other; (e) the next start after a quarantine is empty; (f) saves go through the atomic-write helper and log `store.write` success; (g) a write failure logs the error class and raises `StoreWriteError`; (h) concurrent saves never overlap; (i) a write whose durability is not confirmed logs `store.write_not_durable`.
 
 ### Implementation for User Story 2
 
@@ -78,7 +80,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 **Goal**: `POST /runs` and `GET /runs`. After this phase the MVP works end to end, and runs survive a restart thanks to US2.
 
-**Independent Test**: run `pytest tests/test_service.py tests/test_routes.py -k "create or list"` and follow the User Story 1 scenario in [quickstart.md](./quickstart.md).
+**Independent Test**: run the US1 sections of `tests/test_service.py` and `tests/test_routes.py` (`pytest tests/test_service.py tests/test_routes.py` once the phase is done) and follow the User Story 1 scenario in [quickstart.md](./quickstart.md).
 
 **Dependencies**: Phase 2 and Phase 3 complete.
 
@@ -86,13 +88,13 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 - [X] T017 [P] [US1] Create `tests/test_service.py` (US1 section) asserting `create` returns a running run with a UUID v4 id, the injected clock's time, and the given hyperparameters; names are trimmed; ids are unique; `list_runs` returns every run; blank names, over-long names, non-finite or excess hyperparameters, and out-of-range budgets raise `ValidationError` naming the field and store nothing; all invalid fields are reported together. Uses a `FakeClock`.
 - [X] T018 [P] [US1] Create `tests/test_routes.py` (US1 section) asserting `POST /runs` returns 201 with every `Run` field from [contracts/openapi.yaml](./contracts/openapi.yaml); hyperparameter types are preserved; a client-supplied `id` is rejected; invalid bodies, missing fields, malformed JSON, and `NaN` return 400 `validation_error`; `GET /runs` returns created runs.
-- [X] T019 [P] [US1] Create `tests/test_main.py` asserting `build()` logs `server.started` with `store_existed` and `run_count` (FR-018); a corrupt store makes `main()` return 1 after logging `server.start_failed` and the next start succeeds; a bad `PORT` returns 2; `HOST` and `PORT` reach Uvicorn.
+- [X] T019 [P] [US1] Create `tests/test_main.py` asserting `build()` reports `store_existed` and `run_count`; a corrupt store makes `main()` return 1 after logging `server.start_failed` and the next start succeeds; a bad `PORT` returns 2; a server that cannot start returns 3 and never logs `server.stopped`; a real server process logs `server.started` once listening and exits 0 with `server.stopped` on SIGTERM; a real server on a taken port exits 3 without logging `server.started` (FR-018).
 
 ### Implementation for User Story 1
 
 - [X] T020 [US1] Create `src/experiment_runs/service.py` with `RunService.create()` and `RunService.list_runs()`, injected `clock` and `new_id`, validation per [data-model.md § Validation Rules](./data-model.md), and save-before-swap commits per [research.md § Decision 6](./research.md). MUST NOT import FastAPI. Depends on T016, T017.
 - [X] T021 [US1] Create `src/experiment_runs/schemas.py` (strict Pydantic request bodies with `extra="forbid"`, `RunResponse.from_view`, error bodies) and `src/experiment_runs/routes.py` with `POST /runs` and `GET /runs`. Routes only parse, delegate, and shape. Depends on T020, T018.
-- [X] T022 [US1] Create `src/experiment_runs/main.py` (`build`, `main`, exit codes per [research.md § Decision 5](./research.md)) and `src/experiment_runs/__main__.py`. Depends on T021, T019.
+- [X] T022 [US1] Create `src/experiment_runs/main.py` (`build`, `serve`, `main`, exit codes per [research.md § Decision 5](./research.md)) and `src/experiment_runs/__main__.py`. Depends on T021, T019.
 
 **Checkpoint**: MVP complete. `python -m experiment_runs`, run the US1 scenario in [quickstart.md](./quickstart.md), kill and restart the process, and the runs are still there.
 
@@ -102,14 +104,14 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 **Goal**: `POST /runs/{run_id}/finish` and `DELETE /runs/{run_id}`, with a conflict on a second finish and clear 404s.
 
-**Independent Test**: `pytest tests/test_service.py tests/test_routes.py -k "finish or delete or unknown"` and the US3 scenario in [quickstart.md](./quickstart.md).
+**Independent Test**: the US3 sections of `tests/test_service.py` and `tests/test_routes.py`, and the US3 scenario in [quickstart.md](./quickstart.md).
 
 **Dependencies**: Phase 4 complete. US3 extends the same test modules with new sections; no new files.
 
 ### Tests for User Story 3 (write first, must FAIL)
 
 - [X] T023 [US3] Extend `tests/test_service.py` with: `finish` records metrics and the clock's time; a second `finish` raises `RunAlreadyFinishedError` and keeps the first metrics; empty, non-finite, blank-keyed, or excess metrics raise `ValidationError` and the run stays running; `delete` removes the run; unknown ids raise `NotFoundError` and change nothing; a failed write leaves state unchanged; acknowledged changes survive a restart.
-- [X] T024 [US3] Extend `tests/test_routes.py` with: finish returns 200 with metrics as numbers; a second finish returns 409 `already_finished`; invalid finish bodies (including booleans and strings) return 400; unknown and malformed ids return 404 `not_found`; delete returns 204 with an empty body, then 404.
+- [X] T024 [US3] Extend `tests/test_routes.py` with: finish returns 200 with metrics as numbers; a second finish returns 409 `already_finished`; invalid finish bodies (including booleans and strings) return 400; unknown and malformed ids return 404 `not_found`; an invalid body on an unknown id is 400 (the body is validated first); a metric too large for a float is 400; delete returns 204 with an empty body, then 404.
 
 ### Implementation for User Story 3
 
@@ -124,7 +126,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 **Goal**: `GET /runs` derives `stalled` and returns runs in FR-004a order.
 
-**Independent Test**: `pytest tests/test_service.py tests/test_routes.py -k "stall or order"` and the US4 scenario in [quickstart.md](./quickstart.md).
+**Independent Test**: the US4 sections of `tests/test_service.py` and `tests/test_routes.py`, and the US4 scenario in [quickstart.md](./quickstart.md).
 
 **Dependencies**: Phase 4 complete. The "finished last" rule is only observable once US3's `finish` exists, so schedule after Phase 5.
 
@@ -146,7 +148,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 **Purpose**: final hardening across stories. Every task here depends on all earlier phases.
 
 - [X] T030 [P] Run `mypy`, `ruff check .`, and `ruff format --check .`; confirm zero errors, and that every `Any` or `type: ignore` in `src/` and `tests/` has a justifying comment (constitution II).
-- [X] T031 [P] Extend `tests/test_routes.py` with: write failures return 500 `write failed`; unexpected errors return 500 and are logged with their class (also in the request line); every request logs exactly one outcome line with `operation`, `outcome`, `status`, and `run_id` where one applies (FR-016); `/docs`, `/openapi.json`, `/metrics`, and `/health` return 404 (FR-019).
+- [X] T031 [P] Extend `tests/test_service.py` with inclusive limit boundaries (200-character names after trimming, 100-character model types and keys, 50 entries, a 10,080-minute budget), a 200-thread concurrent-create test that loses no updates (FR-015), and a 120-run mixed store checking every stalled flag and the stalled-first order (SC-003).
 - [X] T032 [P] Create `tests/test_restart_cycle.py`: 100 cycles of reopening the store and applying random creates, finishes, and deletes, asserting nothing acknowledged is ever lost (SC-006).
 - [X] T033 [P] Create `tests/test_perf.py`: seed 1,000 runs, then time 50 iterations of each operation and assert p95 under 100 ms (SC-004). Skipped when `CI_SKIP_PERF` is set, but it must exist and run locally.
 - [X] T034 [P] Add `README.md` with prerequisites, setup, test, and run sections, and a note that this is a single-user, no-auth service for local use.
@@ -173,7 +175,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 ### Parallel Opportunities
 
-- Phase 2: T003/T004, T005/T006, and T007/T008 are three independent test-and-implementation pairs. T009 and T010 form a chain.
+- Phase 2: T003/T004, T005/T006, and T007/T008 are three independent test-and-implementation pairs. T009a → T009 → T010a → T010 form a chain.
 - Phase 3: T011, T012, and T013 are independent [P] test files. T014 and T015 can proceed in parallel; T016 needs both.
 - Phase 4: T017, T018, and T019 are independent [P]. Implementation is a chain: T020 → T021 → T022.
 - Phase 5: T023 and T024 extend files from Phase 4, so they are sequential edits, not [P].
@@ -217,7 +219,7 @@ if needed.
 
 ## Notes
 
-- Task count: 35 tasks across 7 phases (T001 to T035).
-- `/speckit-analyze` remediations applied: G1 (added T033 for SC-004), G2 (added T032 to automate SC-006), G3 (added the request-log assertions in T031 for FR-016), G4 (added startup-log assertions in T019 for FR-018), U1 (added the `schema_version` check to T013), A1 (tightened SC-003 wording in spec.md).
+- Task count: 37 tasks across 7 phases (T001 to T035, plus T009a and T010a).
+- `/speckit-analyze` remediations applied: G1 (added T033 for SC-004), G2 (added T032 to automate SC-006), G3 (added the request-log assertions in T010a for FR-016), G4 (added startup-log assertions in T019 for FR-018), U1 (added the `schema_version` check to T013), A1 (tightened SC-003 wording in spec.md).
 - File-conflict note: `service.py`, `routes.py`, `tests/test_service.py`, and `tests/test_routes.py` are extended across US1, US3, and US4. Those edits are sequenced across phases, never parallel.
 - Commit after each task or after each test-and-implementation pair.

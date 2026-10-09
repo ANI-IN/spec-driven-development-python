@@ -24,8 +24,9 @@ def test_timestamp_is_iso_8601_utc() -> None:
     stamp = json.loads(stream.getvalue())["timestamp"]
     assert stamp.endswith("Z")
     parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    assert parsed.utcoffset() is not None
-    assert parsed.utcoffset().total_seconds() == 0  # type: ignore[union-attr]
+    offset = parsed.utcoffset()
+    assert offset is not None
+    assert offset.total_seconds() == 0
 
 
 def test_unserializable_values_are_stringified() -> None:

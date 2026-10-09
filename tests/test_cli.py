@@ -13,4 +13,4 @@ def test_prints_a_report(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_bad_config_exits_with_code_2(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--max-epochs", "0"]) == 2
-    assert "max_epochs" in capsys.readouterr().out
+    assert "max_epochs" in capsys.readouterr().err

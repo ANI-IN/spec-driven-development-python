@@ -18,10 +18,13 @@ Engineers training models with `minitrain` report three problems:
    two lines of the report: the best validation loss was about 0.48 near epoch
    21, while the model you get back scores about 0.88. The best model existed
    during training and was thrown away.
-3. **Broken runs do not fail fast.** When a run diverges (for example, a bad
-   learning rate turns the loss into `nan` or `inf`), training carries on to
-   the last epoch and returns a useless model with no signal that anything
-   went wrong.
+3. **Broken runs do not fail fast.** On real jobs, a validation loss that
+   becomes `nan` or `inf` (an exploding network, or a `nan` that slipped into
+   the validation data) does not stop training: it carries on to the last
+   epoch and returns a useless model with no signal that anything went wrong.
+   `minitrain` clips its loss, so the bundled data never diverges on its own;
+   to exercise this path in tests, put a `nan` in the validation features or
+   use a stub model whose loss returns `nan`.
 
 We need training that stops once the model stops getting better, returns the
 best model it saw, and stops at once when a run has clearly broken.
@@ -72,12 +75,10 @@ best model it saw, and stops at once when a run has clearly broken.
   warming up?
 - When the run stops, which weights does the caller get: the best epoch's or
   the last epoch's? What if the best epoch *is* the last epoch?
-- What happens when the monitored value is `nan` or `inf`? What if it is
-  non-finite at epoch 1, before any best value exists?
+- What happens when the monitored value is `nan` or `inf`?
 - What values of the new settings are invalid (negative patience, negative
   margin), and what error does the caller see?
 - What if patience is larger than `max_epochs`?
-- How does a run that reaches `max_epochs` without triggering report itself?
 
 ## Constraints
 

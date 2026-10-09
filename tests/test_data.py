@@ -43,6 +43,8 @@ def test_train_and_validation_rows_do_not_overlap(dataset: Dataset) -> None:
         {"val_fraction": 0.0},
         {"val_fraction": 1.0},
         {"label_noise": 0.5},
+        {"n_samples": 3, "val_fraction": 0.1},
+        {"n_samples": 3, "val_fraction": 0.9},
     ],
 )
 def test_invalid_arguments_are_rejected(kwargs: dict[str, float]) -> None:

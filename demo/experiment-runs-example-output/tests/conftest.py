@@ -15,6 +15,9 @@ from experiment_runs.logger import EventLogger
 from experiment_runs.repository import RunRepository
 from experiment_runs.service import RunService
 
+# Any: JSON bodies and log lines are untyped until a test asserts on them.
+Json = dict[str, Any]
+
 START = datetime(2026, 10, 1, 9, 0, 0, tzinfo=timezone.utc)
 
 
@@ -40,10 +43,10 @@ class LogCapture:
         self.stream = io.StringIO()
         self.logger = EventLogger(self.stream)
 
-    def lines(self) -> list[dict[str, Any]]:
+    def lines(self) -> list[Json]:
         return [json.loads(line) for line in self.stream.getvalue().splitlines()]
 
-    def events(self, name: str) -> list[dict[str, Any]]:
+    def events(self, name: str) -> list[Json]:
         return [line for line in self.lines() if line["event"] == name]
 
 
@@ -78,9 +81,9 @@ def client(service: RunService, logs: LogCapture) -> TestClient:
 
 
 @pytest.fixture
-def create_payload() -> Callable[..., dict[str, Any]]:
-    def build(**overrides: Any) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+def create_payload() -> Callable[..., Json]:
+    def build(**overrides: object) -> Json:
+        payload: Json = {
             "name": "baseline",
             "model_type": "logistic_regression",
             "hyperparameters": {"learning_rate": 0.05, "epochs": 20},

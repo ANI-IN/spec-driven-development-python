@@ -24,7 +24,9 @@ def load_settings(env: Mapping[str, str]) -> Settings:
     """``HOST``, ``PORT`` and ``STORE_PATH``; empty values mean "use the default"."""
     host = env.get("HOST") or DEFAULT_HOST
     raw_port = env.get("PORT") or str(DEFAULT_PORT)
-    if not raw_port.isdigit() or not 1 <= int(raw_port) <= 65_535:
+    if not (raw_port.isascii() and raw_port.isdigit()) or not (
+        1 <= int(raw_port) <= 65_535
+    ):
         raise ValidationError(
             "invalid configuration",
             [FieldError("PORT", f"must be an integer 1-65535, got {raw_port!r}")],

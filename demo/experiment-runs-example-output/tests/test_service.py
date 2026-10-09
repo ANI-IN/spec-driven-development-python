@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,7 @@ def test_invalid_input_is_rejected_and_nothing_is_stored(
 ) -> None:
     args: dict[str, object] = {"name": "ok", "model_type": "m", **kwargs}
     with pytest.raises(ValidationError) as caught:
+        # The kwargs are deliberately untyped bad input, hence the ignore below.
         service.create(**args)  # type: ignore[arg-type]
     assert field in [d.field for d in caught.value.details]
     assert service.list_runs() == []
@@ -265,3 +267,92 @@ def test_list_reads_the_clock_once(service: RunService, clock: FakeClock) -> Non
     before = clock.calls
     service.list_runs()
     assert clock.calls == before + 1
+
+
+# Limits and concurrency ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "ok"),
+    [
+        ({"name": "x" * 200}, True),
+        ({"name": "x" * 201}, False),
+        ({"name": "  " + "x" * 200 + "  "}, True),  # limits apply after trimming
+        ({"model_type": "m" * 100}, True),
+        ({"model_type": "m" * 101}, False),
+        ({"hyperparameters": {"k" * 100: 1}}, True),
+        ({"hyperparameters": {"k" * 101: 1}}, False),
+        ({"hyperparameters": {f"k{i}": i for i in range(50)}}, True),
+        ({"time_budget_minutes": 1}, True),
+        ({"time_budget_minutes": 10_080}, True),
+    ],
+)
+def test_limits_are_inclusive(
+    service: RunService, kwargs: dict[str, object], ok: bool
+) -> None:
+    args: dict[str, object] = {"name": "ok", "model_type": "m", **kwargs}
+    if ok:
+        service.create(**args)  # type: ignore[arg-type]  # parametrized kwargs
+    else:
+        with pytest.raises(ValidationError):
+            service.create(**args)  # type: ignore[arg-type]  # parametrized kwargs
+
+
+@pytest.mark.parametrize(
+    ("metrics", "ok"),
+    [
+        ({"k" * 100: 1.0}, True),
+        ({"k" * 101: 1.0}, False),
+        ({f"m{i}": 1.0 for i in range(50)}, True),
+        ({"auc": 10**400}, False),
+    ],
+)
+def test_metric_limits(
+    service: RunService, metrics: dict[str, float], ok: bool
+) -> None:
+    run_id = service.create(name="r", model_type="m").run.id
+    if ok:
+        assert service.finish(run_id, metrics).run.status == "finished"
+    else:
+        with pytest.raises(ValidationError):
+            service.finish(run_id, metrics)
+
+
+def test_concurrent_creates_lose_no_updates(
+    service: RunService, store_path: Path, logs: LogCapture
+) -> None:
+    """FR-015: parallel requests must not overwrite each other's changes."""
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        ids = list(
+            pool.map(
+                lambda i: service.create(name=f"r{i}", model_type="m").run.id,
+                range(200),
+            )
+        )
+    assert len({v.run.id for v in service.list_runs()}) == 200
+    on_disk = RunRepository(store_path, logs.logger).load().runs
+    assert {run.id for run in on_disk} == set(ids)
+
+
+def test_sc003_stalled_flags_and_order_on_a_mixed_store(
+    service: RunService, clock: FakeClock
+) -> None:
+    """SC-003: 100% of stalled runs flagged and listed first, 0% false flags."""
+    expected_stalled: set[str] = set()
+    for i in range(120):
+        budget = (5, 600, None)[i % 3]
+        run_id = service.create(
+            name=f"r{i}", model_type="m", time_budget_minutes=budget
+        ).run.id
+        if i % 4 == 0:
+            service.finish(run_id, {"auc": 0.5})
+        elif budget == 5:
+            expected_stalled.add(run_id)
+        clock.advance(seconds=1)
+    clock.advance(minutes=10)
+
+    views = service.list_runs()
+    flagged = {v.run.id for v in views if v.stalled}
+    assert flagged == expected_stalled
+    first = [v.run.id for v in views[: len(expected_stalled)]]
+    assert set(first) == expected_stalled

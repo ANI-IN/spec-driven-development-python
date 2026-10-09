@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -28,7 +29,7 @@ class ListHandler(logging.Handler):
 
 @pytest.fixture
 def log_capture() -> Iterator[tuple[logging.Logger, ListHandler]]:
-    logger = logging.getLogger(f"minitrain.test.{id(object())}")
+    logger = logging.getLogger(f"minitrain.test.{uuid.uuid4().hex}")
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
     handler = ListHandler()

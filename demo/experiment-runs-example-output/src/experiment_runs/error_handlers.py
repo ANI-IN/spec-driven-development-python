@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from experiment_runs.errors import (
     AppError,
@@ -38,6 +39,12 @@ def _response(
     )
 
 
+# Pydantic appends the union branch it tried (``int``, ``float``, ...) to the
+# error location; those are not field names.
+_UNION_TAGS = {"str", "int", "float", "bool"}
+
+
+# Any: Pydantic's error dictionaries are untyped (values may be any JSON).
 def _field_name(err: Mapping[str, Any]) -> str:
     """``("body", "metrics", "auc")`` becomes ``"metrics.auc"``.
 
@@ -46,6 +53,8 @@ def _field_name(err: Mapping[str, Any]) -> str:
     if err.get("type") == "json_invalid":
         return "body"
     parts = [str(part) for part in err.get("loc", ()) if part != "body"]
+    while len(parts) > 1 and parts[-1] in _UNION_TAGS:
+        parts.pop()
     return ".".join(parts) or "body"
 
 
@@ -75,11 +84,23 @@ def register_error_handlers(app: FastAPI, logger: EventLogger) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         request.state.error_class = "ValidationError"
-        details = [
-            ErrorDetail(field=_field_name(err), message=str(err["msg"]))
-            for err in exc.errors()
-        ]
+        details: list[ErrorDetail] = []
+        for err in exc.errors():
+            field = _field_name(err)
+            # A union reports one error per branch; keep the first per field.
+            if all(d.field != field for d in details):
+                details.append(ErrorDetail(field=field, message=str(err["msg"])))
         return _response(400, "validation_error", "invalid request body", details)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_error(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Framework errors (unknown path, wrong method, unparsable body)."""
+        codes = {404: "not_found", 405: "method_not_allowed"}
+        error = codes.get(exc.status_code, "bad_request")
+        request.state.error_class = type(exc).__name__
+        return _response(exc.status_code, error, str(exc.detail))
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

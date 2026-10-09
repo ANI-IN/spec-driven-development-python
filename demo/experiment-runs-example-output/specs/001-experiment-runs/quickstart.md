@@ -17,7 +17,7 @@ model see [data-model.md](./data-model.md), and for the wire format see
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 ```
 
@@ -35,8 +35,9 @@ It includes:
 - **Contract tests** (`tests/test_routes.py`) for `POST /runs`, `GET /runs`,
   `POST /runs/{run_id}/finish`, and `DELETE /runs/{run_id}`: status codes and
   body shapes match [contracts/openapi.yaml](./contracts/openapi.yaml).
-- **Atomic-write tests** (`tests/test_atomic_write.py`): 50 simulated crashes
-  at random syscall boundaries, plus a real `SIGKILL` of a writer process.
+- **Atomic-write tests** (`tests/test_atomic_write.py`): 50 simulated crashes,
+  each at a random one of five syscalls, plus 25 real `SIGKILL`s of a writer
+  process (POSIX only).
 - **Service tests** (`tests/test_service.py`): ordering (FR-004a), stalled
   detection (FR-009), conflict on a second finish (FR-006), and not found on
   unknown ids (FR-008).
@@ -47,7 +48,7 @@ It includes:
 To skip the latency check on slow shared CI machines:
 
 ```bash
-CI_SKIP_PERF=1 pytest
+CI_SKIP_PERF=1 pytest            # PowerShell: $env:CI_SKIP_PERF=1; pytest
 ```
 
 ## Run the service
@@ -57,7 +58,8 @@ python -m experiment_runs
 ```
 
 Defaults: host `127.0.0.1`, port `8000`, store `data/runs.json`. Override with
-`HOST`, `PORT`, and `STORE_PATH`. At startup one JSON line is printed:
+`HOST`, `PORT`, and `STORE_PATH`. Once the server is listening, one JSON line
+is printed:
 
 ```json
 {"timestamp": "...", "event": "server.started", "host": "127.0.0.1", "port": 8000, "store_path": "data/runs.json", "store_existed": false, "run_count": 0}
@@ -71,7 +73,8 @@ Run the scenarios below from a second terminal.
 curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
   -d '{"name": "baseline", "model_type": "logistic_regression",
        "hyperparameters": {"learning_rate": 0.05, "epochs": 20}}'
-# 201, "status": "running", "stalled": false, a UUID v4 "id"
+# the new run: "status": "running", "stalled": false, a UUID v4 "id"
+# (add -i to curl to see the 201 status line)
 
 curl -s localhost:8000/runs
 # a JSON array containing the run
@@ -83,17 +86,24 @@ curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
 
 ## User Story 2: survive a crash
 
+Note the run ids. From the second terminal, kill the server abruptly (this
+matches any process whose command line contains `experiment_runs`):
+
 ```bash
-# Note the run ids, then kill the server hard and start it again.
-pkill -9 -f "python -m experiment_runs"
-python -m experiment_runs
+pkill -9 -f experiment_runs
+```
+
+Start it again in the first terminal with `python -m experiment_runs`, then
+list the runs from the second terminal:
+
+```bash
 curl -s localhost:8000/runs      # the same runs, same ids
 ```
 
 Corrupt-store recovery:
 
 ```bash
-# Stop the server, then:
+# Stop the server (Ctrl+C), then:
 echo '{oops' > data/runs.json
 python -m experiment_runs; echo "exit code: $?"
 # server.start_failed with reason "store_corrupt"; exit code: 1

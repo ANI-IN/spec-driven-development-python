@@ -25,7 +25,7 @@ def test_empty_values_fall_back_to_defaults() -> None:
     assert load_settings({"PORT": "", "STORE_PATH": ""}) == Settings()
 
 
-@pytest.mark.parametrize("port", ["abc", "0", "65536", "-1", "80.5"])
+@pytest.mark.parametrize("port", ["abc", "0", "65536", "-1", "80.5", "²", "٨٠"])
 def test_invalid_port_is_a_validation_error(port: str) -> None:
     with pytest.raises(ValidationError) as caught:
         load_settings({"PORT": port})

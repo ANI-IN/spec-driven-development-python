@@ -4,10 +4,14 @@ This folder is the **untouched output** of:
 
 ```bash
 uvx --from git+https://github.com/github/spec-kit.git@v1.1.2 \
-  specify init experiment-runs-reference --integration claude --script py
+  specify init experiment-runs-reference --integration claude --script py \
+  --ignore-agent-tools --non-interactive
 ```
 
-generated on 2026-10-10 with Spec Kit v1.1.2.
+generated on 2026-10-10 with Spec Kit v1.1.2. `--ignore-agent-tools` skips the
+check that Claude Code is installed and `--non-interactive` skips the prompts;
+neither changes the files produced. The demo uses the same command without
+those two flags.
 
 It is committed so learners doing the [Spec Kit demo](../README.md) can
 compare their own scaffold with a known-good one. **Do not run Spec Kit skills
@@ -40,7 +44,7 @@ rm -rf demo/experiment-runs-reference
 cd demo
 uvx --from git+https://github.com/github/spec-kit.git@<new-tag> \
   specify init experiment-runs-reference --integration claude --script py \
-  --ignore-agent-tools
+  --ignore-agent-tools --non-interactive
 ```
 
 `rm -rf` also deletes this file, so restore it with

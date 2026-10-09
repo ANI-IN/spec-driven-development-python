@@ -18,8 +18,7 @@ for the same seed. PRD: none (a team request). No existing design notes.
 - A new public function
   `stratified_split(x, y, val_fraction, seed) -> Dataset` in
   `src/minitrain/data.py`.
-- `make_dataset()` uses `stratified_split()` instead of its inline random
-  split.
+- `make_dataset()` is **not** changed in this release (see Non-goals).
 
 ## 3. Acceptance criteria
 
@@ -29,11 +28,15 @@ for the same seed. PRD: none (a team request). No existing design notes.
 - [ ] AC2: Every input row appears in exactly one of the two splits. No row is
       dropped or duplicated, and `len(train) + len(val) == len(y)`.
 - [ ] AC3: Two calls with the same `x`, `y`, `val_fraction`, and `seed` return
-      identical arrays. Calls with different seeds return different splits.
-- [ ] AC4: Within each split, row order is shuffled (not grouped by class).
-- [ ] AC5: If any class has fewer than 2 rows, the function raises
-      `ValueError` whose message names the class and its count. No split is
-      returned.
+      identical arrays. On the arrays from `make_dataset(seed=0)` combined,
+      seeds 0 and 1 give different validation rows.
+- [ ] AC4: Splits are not grouped by class: for an input whose 0-labels all
+      come before its 1-labels, with at least 10 rows per class and `seed=0`,
+      each split contains a 1-label row before some 0-label row.
+- [ ] AC5: If, for any class, the AC1 count would leave that class with no
+      rows in the training split or no rows in the validation split, the
+      function raises `ValueError` naming the class and its count, and
+      returns nothing.
 - [ ] AC6: If `val_fraction` is not strictly between 0 and 1, the function
       raises `ValueError`. If `len(x) != len(y)`, it raises `ValueError`.
 
@@ -48,14 +51,16 @@ for the same seed. PRD: none (a team request). No existing design notes.
 
 ## 5. Non-goals
 
+- Switching `make_dataset()` to the new split. That would change the bundled
+  data and every number the lesson quotes, so it is a separate change with
+  its own spec.
 - K-fold or repeated cross-validation splits.
 - Stratifying on anything other than the label, such as groups or time.
 - Multi-class labels beyond `0.0` and `1.0`.
-- Changing the default arguments of `make_dataset()`.
 
 ## 6. Definition of done
 
 - AC1 to AC6 covered by tests in `tests/test_data.py`.
 - `pytest`, `ruff check .`, `ruff format --check .`, and `mypy` all pass.
-- The `make_dataset()` docstring says the split is stratified.
+- The `stratified_split()` docstring states AC1 and AC5.
 - No new log events. This is a pure function with no I/O.

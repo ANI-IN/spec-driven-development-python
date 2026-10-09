@@ -35,6 +35,6 @@
 - No `[NEEDS CLARIFICATION]` markers were emitted: reasonable defaults for
   storage (a local file), timestamp handling (UTC), input limits, and the
   no-pagination scope are recorded in the Assumptions section.
-- The spec deliberately avoids naming the language, framework, or wire
-  format; those belong in `/speckit-plan`.
+- The spec deliberately avoids naming the language, framework, storage
+  format, or wire format; those belong in `/speckit-plan`.
 - Ready for `/speckit-clarify` (optional) or `/speckit-plan`.

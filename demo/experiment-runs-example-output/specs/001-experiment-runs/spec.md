@@ -146,9 +146,9 @@ carries a correct stalled indicator.
 - **FR-013**: If the store exists but cannot be read or parsed at startup, System MUST (a) rename the file to `<store-path>.corrupt.<UTC timestamp>` so its contents are kept and never overwritten, (b) emit a structured log line naming the failure and the new path, and (c) exit with a non-zero status without starting with an empty store on that launch. The next launch, finding no store, MUST start empty.
 - **FR-014**: System MUST NOT require or perform authentication or authorization in this release; every caller is treated as the single owner of every run.
 - **FR-015**: System MUST serialize concurrent write operations within the process so they cannot interleave and corrupt the stored state.
-- **FR-016**: System MUST emit one structured JSON log line to stdout per request outcome, with at least: timestamp, operation (create, list, finish, delete), outcome (success or the error class), and the run identifier where one applies.
+- **FR-016**: System MUST emit one structured JSON log line to stdout per request outcome, with at least: timestamp, operation (one name each for create, list, finish, and delete; `unknown` for requests that match no operation), outcome (success or the error class), and the run identifier when the request path contains one.
 - **FR-017**: System MUST emit one structured JSON log line to stdout per persistence write attempt, with at least: timestamp, outcome (success or error class name), and, on failure, the error message.
-- **FR-018**: System MUST emit one structured JSON log line to stdout at startup (saying whether the store existed and how many runs were loaded) and one at graceful shutdown.
+- **FR-018**: System MUST emit one structured JSON log line to stdout once it is accepting requests (saying whether the store existed and how many runs were loaded), one at graceful shutdown (an interrupt or a termination signal), and one when it fails to start, giving the reason.
 - **FR-019**: System MUST NOT expose a metrics endpoint, a health endpoint, or interactive API documentation in this release.
 
 ### Key Entities
@@ -172,9 +172,9 @@ carries a correct stalled indicator.
 ## Assumptions
 
 - **Single user, single process**: exactly one caller and one running instance at a time. Multi-process or multi-writer safety is out of scope.
-- **No authentication in this release**: the service runs on a trusted local machine and binds to `127.0.0.1` by default. Adding authentication is future work.
-- **Local file storage**: given the single-user, single-process scope, one local JSON file updated by atomic write and rename is the storage. No database.
+- **No authentication in this release**: the service runs on a trusted local machine and, by default, accepts connections only from that machine. Adding authentication is future work.
+- **Local file storage**: given the single-user, single-process scope, one local file replaced atomically on every change is the storage. No database.
 - **Runs are logged, not executed**: the API records runs; it does not start, monitor, or stop training jobs. "Stalled" is advisory.
 - **Metrics are final values only**: one value per metric name, recorded at finish. Per-epoch metric history is out of scope.
-- **Reasonable limits**: names up to 200 characters, model types up to 100, at most 50 hyperparameters and 50 metrics, budgets up to one week. Exact values were chosen during planning.
+- **Reasonable limits**: names up to 200 characters and model types up to 100 (after trimming), at most 50 hyperparameters and 50 metrics, keys up to 100 characters, budgets up to one week.
 - **No pagination in this release**: list returns every run. At single-user scale this is acceptable; pagination is a future enhancement.

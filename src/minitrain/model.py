@@ -31,7 +31,10 @@ class LogisticRegression:
     def predict_proba(self, x: FloatArray) -> FloatArray:
         logits = x @ self.weights + self.bias
         # Clip so np.exp cannot overflow; probabilities stay well defined.
-        return 1.0 / (1.0 + np.exp(-np.clip(logits, -500.0, 500.0)))
+        probabilities: FloatArray = 1.0 / (
+            1.0 + np.exp(-np.clip(logits, -500.0, 500.0))
+        )
+        return probabilities
 
     def predict(self, x: FloatArray) -> FloatArray:
         return (self.predict_proba(x) >= 0.5).astype(np.float64)

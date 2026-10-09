@@ -28,7 +28,8 @@ shaped `{"schema_version": 1, "runs": [...]}`. Every mutation goes through one
 atomic-write helper: write `<path>.tmp.<pid>.<random>`, `fsync` it,
 `os.replace` it over the target, then `fsync` the directory.
 
-**Testing**: pytest under `tests/`, one test module per source module.
+**Testing**: pytest under `tests/`, grouped by layer: storage, models,
+service, routes, app assembly and error mapping, and startup.
 Contract tests for each endpoint use FastAPI's `TestClient`. Unit tests cover
 the service, repository, and atomic-write helper. A simulated-crash test and a
 real SIGKILL test cover crash safety.
@@ -60,7 +61,7 @@ Against [.specify/memory/constitution.md](../../.specify/memory/constitution.md)
 
 | # | Principle | Compliance | How this plan satisfies it |
 |---|-----------|-----------|-----------------------------|
-| I | Tests Before Implementation | PASS | `tasks.md` orders every implementation task after a failing-test task. Contract tests and the crash-during-write test are written first. |
+| I | Tests Before Implementation | PASS | `tasks.md` (next phase) will order every implementation task after a failing-test task. Contract tests and the crash-during-write test are written first. |
 | II | Fully Type-Hinted Code | PASS | `mypy --strict` over `src/` and `tests/` with the Pydantic plugin. Request bodies are typed Pydantic models, so no `Any` is needed at the parse boundary. |
 | III | Typed Exceptions | PASS | `AppError` base with `ValidationError`, `NotFoundError`, `RunAlreadyFinishedError`, `StoreCorruptError`, `StoreWriteError`. One handler module maps classes to HTTP statuses. |
 | IV | One Responsibility Per Module | PASS | `routes.py` (FastAPI only), `service.py` (domain only, no FastAPI imports), `repository.py` (JSON file only). Dependencies point routes → service → repository. |
@@ -115,7 +116,9 @@ tests/
 ├── test_models.py
 ├── test_service.py
 ├── test_routes.py           # contract tests against contracts/openapi.yaml
-├── test_main.py             # startup log, exit codes
+├── test_error_handlers.py   # exception class → status and body
+├── test_app.py              # request logging, framework errors, disabled endpoints
+├── test_main.py             # startup, shutdown, exit codes (incl. real processes)
 ├── test_config.py
 ├── test_errors.py
 ├── test_logger.py
@@ -127,8 +130,8 @@ pyproject.toml
 
 **Structure Decision**: Single project with a `src/` layout and one module per
 layer, which makes constitution principle IV auditable with a single grep: any
-import pointing the wrong way is visible at once. Tests live in `tests/`, one
-module per source module, the usual pytest convention.
+import pointing the wrong way is visible at once. Tests live in `tests/`,
+grouped by layer, the usual pytest convention.
 
 ## Complexity Tracking
 

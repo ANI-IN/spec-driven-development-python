@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -28,8 +29,15 @@ class JsonFormatter(logging.Formatter):
         }
         fields = getattr(record, "fields", None)
         if isinstance(fields, dict):
-            payload.update(fields)
-        return json.dumps(payload, sort_keys=False, default=str)
+            payload.update({key: _json_safe(value) for key, value in fields.items()})
+        return json.dumps(payload, sort_keys=False, default=str, allow_nan=False)
+
+
+def _json_safe(value: Any) -> Any:
+    """Strict JSON has no NaN or Infinity, so write them as strings."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    return value
 
 
 def get_logger() -> logging.Logger:

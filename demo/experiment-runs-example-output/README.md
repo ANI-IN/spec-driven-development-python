@@ -16,7 +16,8 @@ Full behavioral spec: [specs/001-experiment-runs/spec.md](./specs/001-experiment
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
@@ -29,12 +30,12 @@ ruff format --check .
 mypy
 ```
 
-The pytest suite includes the atomic-write crash simulation, a real `SIGKILL`
-test (POSIX only), and the 100-cycle restart test. To skip the latency check on
-slow CI hardware:
+The pytest suite includes the atomic-write crash simulation, real `SIGKILL`
+and `SIGTERM` tests (POSIX only), and the 100-cycle restart test. To skip the
+latency check on slow CI hardware:
 
 ```bash
-CI_SKIP_PERF=1 pytest
+CI_SKIP_PERF=1 pytest            # PowerShell: $env:CI_SKIP_PERF=1; pytest
 ```
 
 ## Run
@@ -44,9 +45,9 @@ python -m experiment_runs
 ```
 
 Defaults: host `127.0.0.1`, port `8000`, store `data/runs.json`. Override with
-the `HOST`, `PORT`, and `STORE_PATH` environment variables. At startup one
-JSON log line goes to stdout saying whether the store existed and how many
-runs were loaded.
+the `HOST`, `PORT`, and `STORE_PATH` environment variables. Once the server is
+listening, one JSON log line goes to stdout saying whether the store existed
+and how many runs were loaded.
 
 For curl scenarios covering each user story, see
 [specs/001-experiment-runs/quickstart.md](./specs/001-experiment-runs/quickstart.md).
@@ -59,5 +60,6 @@ For curl scenarios covering each user story, see
   rename. If the file is unreadable at startup, it is renamed to
   `<store>.corrupt.<UTC timestamp>` and the process exits with code 1 instead
   of silently starting empty.
-- Exit codes: `0` clean shutdown, `1` corrupt store (quarantined), `2` invalid
-  configuration.
+- Exit codes: `0` clean shutdown (Ctrl+C or SIGTERM), `1` corrupt store
+  (quarantined), `2` invalid configuration, `3` the server could not start
+  (for example, the port is taken).

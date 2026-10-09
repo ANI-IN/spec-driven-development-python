@@ -201,9 +201,17 @@ def _metrics(values: Mapping[str, float]) -> dict[str, float]:
         errors.append(FieldError("metrics", "must contain at least one metric"))
     if len(values) > MAX_METRICS:
         errors.append(FieldError("metrics", f"at most {MAX_METRICS} entries"))
+    clean: dict[str, float] = {}
     for key, value in values.items():
-        if _check_key("metrics", key, errors) and not math.isfinite(value):
+        if not _check_key("metrics", key, errors):
+            continue
+        try:
+            number = float(value)
+        except OverflowError:  # an integer too large for a float
+            number = math.inf
+        if not math.isfinite(number):
             errors.append(FieldError(f"metrics.{key}", "must be a finite number"))
+        clean[key] = number
     if errors:
         raise ValidationError("invalid metrics", errors)
-    return {key: float(value) for key, value in values.items()}
+    return clean

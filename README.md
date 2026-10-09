@@ -11,15 +11,19 @@ pytest suite.
 
 ## 1. What You Will Learn
 
-- Turn a PRD with deliberate gaps into a one-page spec whose every acceptance
-  criterion is testable.
+- Turn a PRD (product requirements document) with deliberate gaps into a
+  one-page spec whose every acceptance criterion is testable.
 - Check a spec against a quality checklist before an agent ever sees it.
 - Drive an implementation from the spec with Claude Code in Plan Mode, and
   patch the spec, not just the code, when a gap surfaces.
 - Trace each defect back to the spec gap that caused it.
 - Run the same idea at scale with GitHub's **Spec Kit**: constitution →
   specify → clarify → plan → tasks → analyze → implement, with project rules
-  the tool enforces.
+  that every later phase is checked against.
+- Use `/speckit-analyze` to catch gaps between requirements and tasks before
+  any code exists.
+- Decide when a full spec pipeline is worth it, and when Plan Mode alone is
+  enough.
 
 ## 2. The Two Use Cases
 
@@ -69,16 +73,26 @@ worked example is checked in so you can compare your run with it.
 
 ## 4. Quickstart
 
-You need Python 3.10 or newer and `git`. The Spec Kit demo also needs
-Claude Code and [`uv`](https://docs.astral.sh/uv/).
+You need Python 3.10 or newer, `git`, and Claude Code (installed and signed
+in) for the lab. The Spec Kit demo also needs
+[`uv`](https://docs.astral.sh/uv/).
+
+To do the lab you will push a branch, so fork the repository on GitHub first
+and clone your fork. To only read and run the code, clone it directly:
 
 ```bash
 git clone https://github.com/ANI-IN/spec-driven-development-python.git
 cd spec-driven-development-python
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
+
+On Windows, use `py -m venv .venv` (or `python -m venv .venv`) if `python3`
+is not found. If PowerShell refuses to run `Activate.ps1`, run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once. On Debian or
+Ubuntu, install the `python3-venv` package first if `venv` is missing.
 
 Check that everything is green, then see the problem the lab solves:
 
@@ -90,7 +104,8 @@ mypy
 python -m minitrain
 ```
 
-`python -m minitrain` prints something like:
+`python -m minitrain` prints a report like this on stdout (the run id
+changes every run; two JSON log lines also go to stderr):
 
 ```text
 run_id            3f2a9c1d7e4b
@@ -119,7 +134,7 @@ pytest
    (about 90 minutes).
 3. Run the [Spec Kit demo](demo/README.md#demo-build-an-experiment-runs-api-with-spec-kit)
    in a scratch directory and compare each phase with the worked example
-   (about 45 minutes).
+   (about 75 to 90 minutes).
 
 The same material is collected in
 [`docs/spec-driven-development.docx`](docs/spec-driven-development.docx) if

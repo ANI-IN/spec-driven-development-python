@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from collections.abc import Sequence
 
 from minitrain.config import ConfigError, TrainingConfig
@@ -58,7 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed=args.seed,
         )
     except ConfigError as exc:
-        print(f"error: {exc}")
+        print(f"error: {exc}", file=sys.stderr)
         return 2
 
     logger = get_logger()

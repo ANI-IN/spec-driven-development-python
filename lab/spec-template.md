@@ -49,4 +49,5 @@
 
 ### 8. Open questions
 
-- Anything you want to flag rather than guess. The agent may not see these.
+- Anything you want to flag rather than guess. Tell the agent to stop and ask
+  about these instead of choosing an answer itself.

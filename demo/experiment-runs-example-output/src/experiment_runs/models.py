@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
+from experiment_runs.errors import InvalidRecordError
+
 RunStatus = Literal["running", "finished"]
 HyperparameterValue = str | int | float | bool
 
@@ -23,9 +25,12 @@ def format_timestamp(moment: datetime) -> str:
 
 def parse_timestamp(text: str) -> datetime:
     """Inverse of :func:`format_timestamp`. Rejects timestamps without a zone."""
-    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise InvalidRecordError(f"not an ISO 8601 timestamp: {text!r}") from exc
     if moment.tzinfo is None:
-        raise ValueError(f"timestamp has no timezone: {text!r}")
+        raise InvalidRecordError(f"timestamp has no timezone: {text!r}")
     return moment.astimezone(timezone.utc)
 
 
@@ -62,48 +67,60 @@ class Run:
     def from_record(cls, record: object) -> Run:
         """Rebuild a run from :meth:`to_record` output.
 
-        Raises ``ValueError`` (or ``TypeError``/``KeyError``) on any record that
-        :meth:`to_record` could not have produced.
+        Raises :class:`InvalidRecordError` for any record that
+        :meth:`to_record` could not have produced (data-model invariants 2-5).
         """
         if not isinstance(record, dict):
-            raise TypeError("run record must be an object")
+            raise InvalidRecordError("run record must be an object")
+        try:
+            return cls._from_dict(record)
+        except KeyError as exc:
+            raise InvalidRecordError(f"run record is missing {exc}") from exc
+
+    @classmethod
+    def _from_dict(cls, record: dict[str, object]) -> Run:
         status = record["status"]
-        if status not in ("running", "finished"):
-            raise ValueError(f"unknown status: {status!r}")
+        if status != "running" and status != "finished":
+            raise InvalidRecordError(f"unknown status: {status!r}")
 
         hyperparameters = record["hyperparameters"]
-        if not isinstance(hyperparameters, dict) or not all(
-            isinstance(v, str | int | float | bool) for v in hyperparameters.values()
-        ):
-            raise TypeError("hyperparameters must map names to scalars")
-        if any(
-            isinstance(v, float) and not math.isfinite(v)
-            for v in hyperparameters.values()
-        ):
-            raise ValueError("hyperparameter values must be finite")
+        if not isinstance(hyperparameters, dict):
+            raise InvalidRecordError("hyperparameters must be an object")
+        params: dict[str, HyperparameterValue] = {}
+        for key, value in hyperparameters.items():
+            if not isinstance(value, str | int | float | bool):
+                raise InvalidRecordError("hyperparameters must map names to scalars")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise InvalidRecordError("hyperparameter values must be finite")
+            params[str(key)] = value
 
         budget = record["time_budget_minutes"]
         if budget is not None and (
             isinstance(budget, bool) or not isinstance(budget, int)
         ):
-            raise TypeError("time_budget_minutes must be an integer or null")
+            raise InvalidRecordError("time_budget_minutes must be an integer or null")
 
-        metrics = record["metrics"]
-        if metrics is not None:
-            if not isinstance(metrics, dict):
-                raise TypeError("metrics must be an object or null")
-            metrics = {str(k): _finite_float(v) for k, v in metrics.items()}
+        raw_metrics = record["metrics"]
+        metrics: dict[str, float] | None = None
+        if raw_metrics is not None:
+            if not isinstance(raw_metrics, dict):
+                raise InvalidRecordError("metrics must be an object or null")
+            metrics = {str(k): _finite_float(v) for k, v in raw_metrics.items()}
 
         finished_raw = record["finished_at"]
-        finished_at = parse_timestamp(str(finished_raw)) if finished_raw else None
-        if (status == "finished") != (finished_at is not None and metrics is not None):
-            raise ValueError("finished runs need finished_at and metrics; others none")
+        finished_at = (
+            None if finished_raw is None else parse_timestamp(_text(finished_raw))
+        )
+        if status == "finished" and (finished_at is None or metrics is None):
+            raise InvalidRecordError("a finished run needs finished_at and metrics")
+        if status == "running" and (finished_at is not None or metrics is not None):
+            raise InvalidRecordError("a running run has no finished_at or metrics")
 
         return cls(
             id=_text(record["id"]),
             name=_text(record["name"]),
             model_type=_text(record["model_type"]),
-            hyperparameters={str(k): v for k, v in hyperparameters.items()},
+            hyperparameters=params,
             time_budget_minutes=budget,
             status=status,
             started_at=parse_timestamp(_text(record["started_at"])),
@@ -122,14 +139,17 @@ class RunView:
 
 def _text(value: object) -> str:
     if not isinstance(value, str) or not value:
-        raise TypeError("expected a non-empty string")
+        raise InvalidRecordError("expected a non-empty string")
     return value
 
 
 def _finite_float(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError("metric values must be numbers")
-    number = float(value)
+        raise InvalidRecordError("metric values must be numbers")
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise InvalidRecordError("metric values must be finite") from exc
     if not math.isfinite(number):
-        raise ValueError("metric values must be finite")
+        raise InvalidRecordError("metric values must be finite")
     return number

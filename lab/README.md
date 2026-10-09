@@ -8,7 +8,8 @@ build, 15 for tests, 10 to trace defects and lock the build).
 
 > The [Spec Kit demo](../demo/README.md) shows the same PRD → spec → code
 > chain driven by GitHub's Spec Kit toolkit (`/speckit-constitution →
-> /speckit-specify → /speckit-plan → /speckit-tasks → /speckit-implement`).
+> /speckit-specify → /speckit-clarify → /speckit-plan → /speckit-tasks →
+> /speckit-analyze → /speckit-implement`).
 > Run it before or after this lab to compare the tool-driven form with the
 > hand-written template used here.
 
@@ -31,8 +32,10 @@ that.
 
 ## Setup
 
-1. Install and check that everything is green (see the
-   [repo README](../README.md#4-quickstart) for the virtual environment):
+1. Fork the repository on GitHub and clone **your fork**, so you can push
+   your branch at the end. Then install and check that everything is green
+   (see the [repo README](../README.md#4-quickstart) for the virtual
+   environment):
 
    ```bash
    pip install -e ".[dev]"
@@ -68,7 +71,9 @@ questions; find at least one it does not list.
 - Use Plan Mode (press `Shift+Tab` until the mode indicator shows plan mode)
   so you review the plan before any file changes.
 - Implement against the spec. When a gap surfaces, **patch the spec first,
-  then re-run**.
+  then re-run**. Commit each spec patch on its own
+  (`git commit -m "Spec: <what changed>"`) before the code change it causes,
+  so the defect-to-spec trace is visible in the history.
 - Aim for one spec iteration. The point is the loop, not perfection.
 
 A starting prompt:
@@ -106,7 +111,8 @@ For each defect or rework moment, fill in a row of the
 - `spec.md` committed
 - Implementation committed
 - Tests and gates passing locally
-- Branch pushed: `git push -u origin feature/early-stopping-<initials>`
+- Branch pushed to your fork:
+  `git push -u origin feature/early-stopping-<initials>`
 
 ## What "done" looks like
 
@@ -125,7 +131,13 @@ When you are finished, compare your work with the reference solution on the
 git fetch origin
 git diff main origin/solution/early-stopping --stat
 git show origin/solution/early-stopping:spec.md
+git log --oneline main..origin/solution/early-stopping
 ```
+
+The log shows the spec-first loop: the first draft of the spec, the patches
+made when implementation exposed its gaps, and then the code. (If your fork
+copied only `main`, add the original repository as a second remote and fetch
+`solution/early-stopping` from it.)
 
 Your spec does not have to match it. Look at the decisions it made that yours
 did not, and ask which of your gaps would have become defects.

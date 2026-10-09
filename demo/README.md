@@ -33,8 +33,8 @@ skills underneath are the same.
 | Order | Skill | Job | Output |
 |---|---|---|---|
 | 0 | `/speckit-constitution` | Set the project's non-negotiable rules | `.specify/memory/constitution.md` |
-| 1 | `/speckit-specify` | Turn a description into a spec: what and why, no tech | `specs/<nnn>-<slug>/spec.md` with user stories, FRs, SCs, edge cases, assumptions |
-| 1a | `/speckit-clarify` *(optional, recommended)* | Ask up to 5 targeted questions, one at a time, to remove ambiguity | A `Clarifications` section in `spec.md` |
+| 1 | `/speckit-specify` | Turn a description into a spec: what and why, no tech | `specs/<nnn>-<slug>/spec.md` with user stories, functional requirements, success criteria, edge cases, assumptions |
+| 1a | `/speckit-clarify` *(optional, recommended)* | Ask up to 5 targeted questions, one at a time, to remove ambiguity | A `Clarifications` section in `spec.md`, plus edits to every section an answer affects |
 | 2 | `/speckit-plan` | Add the tech direction and produce a design | `plan.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, with Constitution Check gates |
 | 2a | `/speckit-checklist` *(optional)* | Generate a requirements-quality checklist | `checklists/*.md` |
 | 3 | `/speckit-tasks` | Break spec and plan into small, dependency-ordered tasks | `tasks.md` with `[P]` parallel markers and `[USn]` story tags |
@@ -63,28 +63,33 @@ If a "should" in the spec has no testable condition, the spec has a gap.
 
 ## 04. How the Constitution Flows Downstream
 
-The constitution holds the project's non-negotiable principles, and every
-later skill enforces them:
+The constitution holds the project's non-negotiable principles, and the
+later skills read it and check against it:
 
 - **`/speckit-plan`** runs a **Constitution Check** gate before and after
   design. If a principle is violated, the plan does not advance until the
   violation is fixed or justified.
-- **`/speckit-tasks`** turns optional steps into required ones when a
-  principle demands it. Mark principle I "Tests before implementation,
-  NON-NEGOTIABLE", and every implementation task is preceded by a failing
-  test task.
+- **`/speckit-tasks`** reads the constitution when it builds the task list.
+  Test tasks are optional by default, so a test-first principle (and a
+  one-line reminder in the prompt) is what makes it generate a test task and
+  order it before each implementation task. Check the result: the agent can
+  still miss one.
+- **`/speckit-analyze`** treats any conflict with a constitution MUST as a
+  CRITICAL finding, to be fixed in the spec, plan, or tasks, never by
+  weakening the principle.
 - **`/speckit-implement`** follows the task order and checks each phase before
   moving on.
 
 This is the most under-appreciated feature. Team conventions stop being
-reminders you retype into every prompt and become **rules the tool enforces**.
+reminders you retype into every prompt and become **rules that every later
+phase is checked against**. You still verify each checkpoint.
 
 ## 05. How It Fits with Plan Mode and CLAUDE.md
 
 - **Plan Mode** applies to a single change; **Spec Kit** applies to a whole
-  feature. Plan Mode is the atom, a spec is the molecule. Inside
-  `/speckit-implement`, any multi-file task can (and should) run under Plan
-  Mode.
+  feature. Plan Mode is the atom, a spec is the molecule. To review risky work
+  one step at a time, pass `/speckit-implement` a task filter (for example
+  `/speckit-implement only T020`) and check the diff before you continue.
 - **CLAUDE.md** and the constitution overlap. Use the constitution for hard
   rules the spec pipeline should enforce, and CLAUDE.md for softer defaults
   every session picks up.
@@ -109,26 +114,30 @@ reminders you retype into every prompt and become **rules the tool enforces**.
 
 ## 07. Version Drift Warning
 
-GitHub's announcement post (September 2025) documented four commands
-(`/specify`, `/plan`, `/tasks`, `/implement`) and an `--ai` CLI flag. The
-**current release, v1.1.2 (checked 2026-10-10)**, is different:
+GitHub's announcement post (September 2025) used unprefixed commands such as
+`/specify`, `/plan`, and `/tasks`, and an `--ai` CLI flag. The **current
+release, v1.1.2 (checked 2026-10-10)**, is different:
 
 - Commands are skills with a `speckit-` prefix (`/speckit-specify`).
 - The flag is `--integration claude`, not `--ai claude`.
-- `--script py` installs Python helper scripts that run the same way on
-  macOS, Linux, and Windows.
+- `--script py` installs Python helper scripts, which the skills run with
+  `python3`, so the same scaffold works on macOS, Linux, and Windows as long
+  as `python3` runs in your shell.
 - Creating a git branch per feature is no longer built in. It is an optional
-  extension (`--extension git`); without it, you create the branch yourself.
+  extension (`--extension git`). Without it no branch is created: the skills
+  find the current feature through `.specify/feature.json`, and you create a
+  branch yourself if you want one.
 
-This demo pins `@v1.1.2` so every command below behaves as described. If you
-follow an older blog post and get flag errors, this is why.
+This demo pins `@v1.1.2` so the commands and flags below match. The agent's
+own output still varies from run to run. If you follow an older blog post and
+get flag errors, this is why.
 
 ## 08. Recap
 
 - Spec Kit chains **constitution → specify → clarify → plan → tasks →
   analyze → implement**.
-- Non-negotiable constitution principles are enforced downstream
-  automatically.
+- Constitution principles are checked at every later phase: plan gates,
+  task ordering, and analyze findings. You still verify each checkpoint.
 - Every phase has a checkpoint. You steer; the agent writes.
 - `/speckit-analyze` is the highest-leverage step. It turns silent
   inconsistencies into fixable findings before any code exists.
@@ -140,13 +149,14 @@ follow an older blog post and get flag errors, this is why.
 
 # Demo: Build an Experiment Runs API with Spec Kit
 
-**Full pipeline · Python, FastAPI, Pydantic, pytest · about 45 minutes**
+**Full pipeline · Python, FastAPI, Pydantic, pytest · about 75 to 90 minutes**
 
 You will take a plain-language description of an **Experiment Runs API**, a
 small service where an ML engineer logs training runs, and drive it through
 the pipeline: constitution → specify → clarify → plan → tasks → analyze →
 implement. At the end you will have about 35 generated tasks and a working,
-tested service, none of which you wrote by hand.
+tested service, none of which you wrote by hand. The per-phase times below
+add up to about 75 minutes; allow longer for implement on a slow machine.
 
 ## 01. Why This Demo
 
@@ -162,7 +172,11 @@ compare your run with a known-good baseline at every phase.
 
 - Claude Code installed and signed in. Inside Claude Code, `/status` should
   show an account with API credit or a Claude subscription.
-- Python 3.10 or newer, and `uv`:
+- Python 3.10 or newer, and `python3 --version` must work in your shell,
+  because the Spec Kit skills call `python3`. (On Windows, install Python from
+  python.org or the Microsoft Store and check that `python3` runs; if only
+  `python` or `py` works, add a `python3` alias.)
+- `uv`:
   - macOS or Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
   - Windows PowerShell: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
   - Fallback anywhere: `python -m pip install uv`
@@ -199,9 +213,10 @@ Look at the layout:
 ```bash
 ls -a
 find .claude .specify -type f | sort
+# PowerShell: Get-ChildItem -Force; Get-ChildItem -Recurse -File .claude, .specify
 ```
 
-Point out:
+Notice:
 
 - **`.claude/skills/speckit-*/SKILL.md`**: ten Spec Kit skills registered with
   Claude Code. You use seven in this demo; `/speckit-checklist`,
@@ -239,7 +254,8 @@ Paste exactly:
 
 ```text
 /speckit-constitution The project follows five principles:
-1. Tests before implementation: every feature ships with a failing test first.
+1. Tests before implementation (NON-NEGOTIABLE): every feature ships with a
+   failing test first.
 2. Fully type-hinted code: mypy --strict passes; no Any without a comment.
 3. Typed exceptions, never strings: raise subclasses of a shared AppError and
    handle errors by class, never by message text.
@@ -260,10 +276,10 @@ Expect:
 Compare with
 [the example constitution](experiment-runs-example-output/.specify/memory/constitution.md).
 
-Land the point:
+Why this matters:
 
-> Every later phase must respect this file. If `/speckit-plan` ignores
-> principle 5, we catch the violation before any code exists.
+> Every later phase is checked against this file. If `/speckit-plan` ignores
+> principle 5, you catch the violation before any code exists.
 
 Commit: `git add -A && git commit -m "Add project constitution"`.
 
@@ -281,7 +297,8 @@ budget, at a glance, and must never lose data on a crash. There is no
 authentication in this release: one user, one process.
 ```
 
-Expect `specs/001-experiment-runs/spec.md` with:
+Expect `specs/001-<short-name>/spec.md`, where the agent picks the short name
+(the worked example uses `specs/001-experiment-runs/`), with:
 
 - **About four prioritized user stories** (P1 and P2) with acceptance
   scenarios: log and list, survive crashes, finish and delete, see stalled
@@ -291,6 +308,8 @@ Expect `specs/001-experiment-runs/spec.md` with:
 - An **edge cases** section.
 - **Several explicit assumptions**: single user, single process, no auth,
   local file storage, runs are logged rather than executed, no pagination.
+- `checklists/requirements.md`: the spec-quality checklist that
+  `/speckit-specify` writes and checks the spec against.
 - A **readiness note**: ready for `/speckit-plan`, or run `/speckit-clarify`
   first.
 
@@ -305,8 +324,9 @@ the questions it asks show you which silent decisions it made.
 /speckit-clarify
 ```
 
-The skill asks up to five questions **one at a time**, as **multiple choice
-with a recommended option**. For this API, expect questions such as:
+The skill asks up to five questions **one at a time**, either as **multiple
+choice with a recommended option** or as a short answer with a suggested
+answer. For this API, expect questions such as:
 
 1. List ordering: stalled first, newest first, or start-time order?
 2. Run identifier format: UUID v4, counter, ULID, or slug?
@@ -315,8 +335,8 @@ with a recommended option**. For this API, expect questions such as:
 4. Corrupted-store recovery: quarantine and exit, rebuild empty, or abort?
 5. Finishing a run that is already finished: reject, overwrite, or ignore?
 
-Answer each one. **Accepting the recommended option is a valid strategy**,
-because it is usually the strictest reading. Reply with the option letter or
+Answer each one. **Accepting the recommended option is a valid strategy**:
+the skill picks it as the best-practice, lowest-risk choice. Reply with the option letter or
 `yes` to accept the recommendation. To match the worked example, choose the
 answers recorded in its
 [Clarifications section](experiment-runs-example-output/specs/001-experiment-runs/spec.md#clarifications).
@@ -359,19 +379,22 @@ re-prompt, for example:
 *(about 5 min)*
 
 ```text
-/speckit-tasks
+/speckit-tasks Follow the constitution's test-first principle: put a failing
+test task before every implementation task.
 ```
 
-Expect:
+Test tasks are optional in Spec Kit by default, so say it in the prompt as
+well as in the constitution. Expect:
 
-- **About 30 to 35 tasks across about 7 phases**: Setup, Foundational, one
+- **About 35 tasks across about 7 phases**: Setup, Foundational, one
   phase per user story, and Polish.
 - Each task in the strict format `- [ ] Txxx [P?] [Story?] Description with file path`.
 - `[P]` markers on tasks whose files are independent.
 - `[USn]` tags tying tasks to user stories.
 - A **suggested MVP scope**.
-- **Test-first ordering**: because principle I is NON-NEGOTIABLE, every
-  implementation task depends on a test task that comes before it.
+- **Test-first ordering**: every implementation task depends on a test task
+  that comes before it. Check this yourself; it is the rule agents most often
+  bend for "plumbing" tasks such as wiring up the app.
 
 Apply one filter: *"When I finish this task, can I commit and still have a
 working repo?"* If a task fails that test, re-prompt:
@@ -399,11 +422,12 @@ Analyze is **read-only**. Expect a **Specification Analysis Report** with:
 A typical first pass on this API reports coverage below 100%: success
 criteria such as the latency target (SC-004) or the 100-restart test (SC-006)
 have no task that actually measures them. Say yes, review the suggested
-edits, and apply the ones you agree with. The worked example's
+edits, then ask Claude to apply the ones you agree with (analyze itself never
+edits files). The worked example's
 [tasks.md](experiment-runs-example-output/specs/001-experiment-runs/tasks.md#notes)
 lists the six remediations it applied.
 
-This is the highest-leverage step. On a real feature, these findings would
+This is the highest-leverage step. On a real feature, these findings could
 have become production bugs.
 
 ## 11. Phase 4: Implement
@@ -422,17 +446,19 @@ its own feedback loop:
 pytest
 mypy
 ruff check .
+ruff format --check .
 ```
 
 Watch the pytest count climb as each phase completes. The exact numbers
-depend on your run.
+depend on your run. If any checklist under `checklists/` still has unchecked
+items, `/speckit-implement` stops and asks before it starts.
 
-Narrate while it runs:
+What to watch for:
 
-- "Each phase ends green before the next one starts. That is the
-  constitution enforcing test-first."
-- "When a test fails, the agent traces it to a spec or plan gap. Fix upstream.
-  That is the discipline."
+- Each phase should end green before the next one starts. That is the
+  test-first principle at work.
+- When a test fails, the fix belongs upstream: trace it to a spec or plan gap
+  first.
 
 If a test fails mid-run, **do not let the agent chase it blindly**. Ask:
 
@@ -446,21 +472,24 @@ patching the spec.
 
 *(about 3 min)*
 
-Exit Claude Code and open a new terminal:
+Exit Claude Code and open a new terminal in the project folder. Use the
+setup and run commands from your generated `README.md` or `quickstart.md`;
+for the worked example they are:
 
 ```bash
-cd experiment-runs
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 pytest
 ```
 
-You should see the same pass count Claude reported. If not, something,
-usually a leftover `data/` file or an environment difference, is masking
-behavior that only shows up in a fresh session.
+You should see the same pass count Claude reported. If you don't, a leftover
+`data/` file or a difference between environments is hiding a problem that
+only shows up in a fresh shell.
 
-Then run the service and try a scenario from the generated `quickstart.md`:
+Then start the service and, in a second terminal, try a scenario from the
+generated `quickstart.md`:
 
 ```bash
 python -m experiment_runs
@@ -498,7 +527,7 @@ artifact of the spec.*
 | `No such option` on another flag | Running a different Spec Kit version | Keep the `@v1.1.2` pin from this guide |
 | `/speckit-*` missing in Claude Code | Session started before the scaffold existed | Exit and re-open `claude` from the project root |
 | No feature branch was created | Branching is an optional extension in v1.x | `git switch -c 001-experiment-runs`, or init with `--extension git` |
-| `API Error 400: Not a valid API key` | Claude Code auth issue | Inside Claude Code run `/logout`, then `/login`; or unset a stale `ANTHROPIC_API_KEY` |
+| Claude Code reports an invalid API key or an authentication error | Claude Code auth issue | Inside Claude Code run `/logout`, then `/login`; or unset a stale `ANTHROPIC_API_KEY` |
 | `/speckit-plan` invents dependencies | Prompt too permissive | Re-run with an explicit "use only these libraries" constraint |
 | `/speckit-implement` skips tasks | Task descriptions too vague | Re-run `/speckit-tasks` with the "working repo after every task" rule, then `/speckit-analyze` |
 | Tests fail during implement | A spec or plan gap, not an agent error | Trace it to the spec first; patch the spec, then re-run |

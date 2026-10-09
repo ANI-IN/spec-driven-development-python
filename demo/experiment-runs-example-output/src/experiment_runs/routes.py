@@ -41,7 +41,7 @@ def list_runs(service: ServiceDep) -> list[RunResponse]:
 
 @router.post("/{run_id}/finish", name="finishRun")
 def finish_run(run_id: str, body: FinishRunRequest, service: ServiceDep) -> RunResponse:
-    view = service.finish(run_id, {k: float(v) for k, v in body.metrics.items()})
+    view = service.finish(run_id, body.metrics)
     return RunResponse.from_view(view)
 
 
