@@ -1,0 +1,240 @@
+openapi: 3.1.0
+info:
+  title: Experiment Runs API
+  version: 1.0.0
+  description: |
+    Single-user, single-process API for logging ML training runs.
+    No authentication in this release (spec FR-014). Behavior is defined in
+    specs/001-experiment-runs/spec.md.
+servers:
+  - url: http://127.0.0.1:8000
+paths:
+  /runs:
+    post:
+      operationId: createRun
+      summary: Log a new training run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRunRequest"
+            example:
+              name: baseline
+              model_type: logistic_regression
+              hyperparameters: {learning_rate: 0.05, epochs: 20}
+              time_budget_minutes: 30
+      responses:
+        "201":
+          description: Run logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listRuns
+      summary: List every run, stalled runs first (FR-004a)
+      responses:
+        "200":
+          description: All runs in FR-004a order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Run"
+  /runs/{run_id}/finish:
+    post:
+      operationId: finishRun
+      summary: Record final metrics and mark the run finished
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinishRunRequest"
+            example:
+              metrics: {val_auc: 0.91, val_loss: 0.33}
+      responses:
+        "200":
+          description: Run finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The run is already finished; its metrics are unchanged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: already_finished
+                message: run 5b1f2a8e-1c2d-4e3f-8a9b-0c1d2e3f4a5b is already finished
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /runs/{run_id}:
+    delete:
+      operationId: deleteRun
+      summary: Delete a run
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "204":
+          description: Deleted (empty body)
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  parameters:
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      description: A run identifier. Malformed values are treated as unknown (404).
+      schema:
+        type: string
+  schemas:
+    Scalar:
+      oneOf:
+        - type: string
+        - type: integer
+        - type: number
+        - type: boolean
+    CreateRunRequest:
+      type: object
+      additionalProperties: false
+      required: [name, model_type]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Trimmed; must not be blank.
+        model_type:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed; must not be blank.
+        hyperparameters:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            $ref: "#/components/schemas/Scalar"
+          default: {}
+        time_budget_minutes:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 10080
+    FinishRunRequest:
+      type: object
+      additionalProperties: false
+      required: [metrics]
+      properties:
+        metrics:
+          type: object
+          minProperties: 1
+          maxProperties: 50
+          additionalProperties:
+            type: number
+            description: Finite; booleans are rejected.
+    Run:
+      type: object
+      required:
+        - id
+        - name
+        - model_type
+        - hyperparameters
+        - time_budget_minutes
+        - status
+        - started_at
+        - finished_at
+        - metrics
+        - stalled
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        name: {type: string}
+        model_type: {type: string}
+        hyperparameters:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Scalar"
+        time_budget_minutes: {type: [integer, "null"]}
+        status:
+          type: string
+          enum: [running, finished]
+        started_at:
+          type: string
+          format: date-time
+          description: UTC, millisecond precision, Z suffix.
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+        metrics:
+          type: [object, "null"]
+          additionalProperties: {type: number}
+        stalled:
+          type: boolean
+          description: Derived at read time (FR-009).
+    ErrorDetail:
+      type: object
+      required: [field, message]
+      properties:
+        field: {type: string}
+        message: {type: string}
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum: [validation_error, not_found, already_finished, internal_error]
+        message: {type: string}
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+  responses:
+    ValidationError:
+      description: The body broke a shape or business rule
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: validation_error
+            message: invalid run
+            details:
+              - {field: name, message: must not be empty or whitespace}
+    NotFound:
+      description: No run has this identifier
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: not_found
+            message: no run with id 5b1f2a8e-1c2d-4e3f-8a9b-0c1d2e3f4a5b
+    InternalError:
+      description: The store could not be written, or an unexpected error occurred
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: internal_error
+            message: write failed

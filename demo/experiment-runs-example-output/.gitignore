@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime data (the store and any quarantined copies)
+data/
+
+# Environment and editors
+.env
+.env.*
+*.log
+*.tmp
+*.swp
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
