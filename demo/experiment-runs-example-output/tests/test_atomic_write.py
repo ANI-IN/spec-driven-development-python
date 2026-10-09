@@ -6,6 +6,7 @@ import json
 import os
 import random
 import re
+import stat
 import subprocess
 import sys
 import textwrap
@@ -23,6 +24,30 @@ class SimulatedCrash(Exception):
 
 def leftovers(directory: Path) -> list[Path]:
     return [p for p in directory.iterdir() if ".tmp." in p.name]
+
+
+REAL_CLOSE = os.close
+
+
+def install_crash(patch: pytest.MonkeyPatch, point: str) -> None:
+    """Make the step ``point`` of an atomic write fail like a crash.
+
+    ``close`` closes the descriptor first, so the test does not leak it.
+    """
+
+    def crash(*args: object, **kwargs: object) -> None:
+        raise SimulatedCrash(point)
+
+    def close_then_crash(fd: int) -> None:
+        REAL_CLOSE(fd)
+        raise SimulatedCrash(point)
+
+    if point == "flush":
+        patch.setattr(atomic_write, "flush_to_disk", crash)
+    elif point == "close":
+        patch.setattr(os, "close", close_then_crash)
+    else:
+        patch.setattr(os, point, crash)
 
 
 def test_writes_new_content(tmp_path: Path) -> None:
@@ -48,34 +73,59 @@ def test_temp_name_has_pid_and_random_suffix(tmp_path: Path) -> None:
     )
 
 
-def test_temp_file_is_fsynced_before_the_rename_and_dir_after(
+def test_temp_file_is_flushed_before_the_rename_and_dir_after(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[str] = []
-    real_fsync, real_replace = os.fsync, os.replace
+    real_flush, real_replace = atomic_write.flush_to_disk, os.replace
     real_dir_sync = atomic_write.fsync_directory
 
-    def spy_fsync(fd: int) -> None:
-        calls.append("fsync-dir" if calls and calls[-1] == "dir" else "fsync-file")
-        real_fsync(fd)
+    def spy_flush(fd: int) -> None:
+        calls.append("flush-file")
+        real_flush(fd)
 
     def spy_replace(src: str | Path, dst: str | Path) -> None:
         calls.append("replace")
         real_replace(src, dst)
 
     def spy_dir_sync(directory: Path) -> None:
-        calls.append("dir")
+        calls.append("fsync-dir")
         real_dir_sync(directory)
 
     (tmp_path / "store.json").write_bytes(b"old")  # directory already exists
-    monkeypatch.setattr(os, "fsync", spy_fsync)
+    monkeypatch.setattr(atomic_write, "flush_to_disk", spy_flush)
     monkeypatch.setattr(os, "replace", spy_replace)
     monkeypatch.setattr(atomic_write, "fsync_directory", spy_dir_sync)
     assert atomic_write_bytes(tmp_path / "store.json", b"data") is True
-    if sys.platform == "win32":
-        assert calls[:2] == ["fsync-file", "replace"]
-    else:
-        assert calls == ["fsync-file", "replace", "dir", "fsync-dir"]
+    assert calls == ["flush-file", "replace", "fsync-dir"]
+
+
+def test_flush_uses_full_fsync_on_macos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if sys.platform != "darwin":
+        pytest.skip("F_FULLFSYNC exists only on macOS")
+    import fcntl
+
+    seen: list[int] = []
+    real_fcntl = fcntl.fcntl
+
+    def spy(fd: int, cmd: int, *args: int) -> object:
+        seen.append(cmd)
+        return real_fcntl(fd, cmd, *args)
+
+    monkeypatch.setattr(fcntl, "fcntl", spy)
+    atomic_write_bytes(tmp_path / "store.json", b"x")
+    assert fcntl.F_FULLFSYNC in seen
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_an_existing_store_keeps_its_permissions(tmp_path: Path) -> None:
+    target = tmp_path / "store.json"
+    atomic_write_bytes(target, b"old")
+    target.chmod(0o600)
+    atomic_write_bytes(target, b"new")
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
 def test_a_failed_directory_fsync_after_the_rename_is_reported_not_raised(
@@ -102,23 +152,21 @@ def test_a_new_directory_is_made_durable_too(
         real(directory)
 
     monkeypatch.setattr(atomic_write, "fsync_directory", spy)
-    atomic_write_bytes(tmp_path / "data" / "store.json", b"{}")
-    assert synced == [tmp_path, tmp_path / "data"]
+    atomic_write_bytes(tmp_path / "a" / "b" / "store.json", b"{}")
+    # Each new directory's parent first (top-down), then the rename.
+    assert synced == [tmp_path, tmp_path / "a", tmp_path / "a" / "b"]
 
 
-@pytest.mark.parametrize("crash_point", ["write", "fsync", "replace"])
+@pytest.mark.parametrize("crash_point", ["open", "write", "flush", "close", "replace"])
 def test_crash_before_rename_leaves_target_unchanged_and_no_temp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, crash_point: str
 ) -> None:
     target = tmp_path / "store.json"
     atomic_write_bytes(target, b"old")
 
-    def crash(*args: object, **kwargs: object) -> None:
-        raise SimulatedCrash(crash_point)
-
-    # Patch only around the call: this replaces the function on the os module.
+    # Patch only around the call: os functions are replaced process-wide.
     with monkeypatch.context() as patch, pytest.raises(SimulatedCrash):
-        patch.setattr(os, crash_point, crash)
+        install_crash(patch, crash_point)
         atomic_write_bytes(target, b"new")
     assert target.read_bytes() == b"old"
     assert leftovers(tmp_path) == []
@@ -131,18 +179,15 @@ def test_fifty_simulated_crashes_never_corrupt_the_store(
     target = tmp_path / "store.json"
     atomic_write_bytes(target, json.dumps({"version": 0}).encode())
     rng = random.Random(1234)
-    points = ["open", "write", "fsync", "close", "replace"]
+    points = ["open", "write", "flush", "close", "replace"]
 
     for i in range(1, 51):
         before = target.read_bytes()
         point = rng.choice(points)
         new = json.dumps({"version": i, "pad": "x" * rng.randint(0, 5000)})
 
-        def crash(*args: object, **kwargs: object) -> None:
-            raise SimulatedCrash
-
         with monkeypatch.context() as patch, pytest.raises(SimulatedCrash):
-            patch.setattr(os, point, crash)
+            install_crash(patch, point)
             atomic_write_bytes(target, new.encode())
         assert target.read_bytes() == before
         json.loads(target.read_bytes())

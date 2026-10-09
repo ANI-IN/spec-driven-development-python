@@ -22,7 +22,8 @@ NumberValue = StrictInt | StrictFloat
 
 
 class CreateRunRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # protected_namespaces=(): ``model_type`` is a domain field, not Pydantic's.
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     name: StrictStr
     model_type: StrictStr
@@ -37,6 +38,8 @@ class FinishRunRequest(BaseModel):
 
 
 class RunResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     name: str
     model_type: str

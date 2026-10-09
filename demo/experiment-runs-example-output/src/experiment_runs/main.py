@@ -6,7 +6,8 @@ Exit codes:
 - ``1`` when the store is corrupt (it has been quarantined; the next start
   begins empty),
 - ``2`` for invalid configuration,
-- ``3`` when the server cannot start, for example because the port is taken.
+- ``3`` when the server cannot start, for example because the port is taken,
+- ``4`` when the store exists but cannot be read (it is left untouched).
 """
 
 from __future__ import annotations
@@ -22,12 +23,17 @@ from fastapi import FastAPI
 
 from experiment_runs.app import create_app
 from experiment_runs.config import Settings, load_settings
-from experiment_runs.errors import StoreCorruptError, ValidationError
+from experiment_runs.errors import (
+    StoreCorruptError,
+    StoreUnreadableError,
+    ValidationError,
+)
 from experiment_runs.logger import EventLogger
 from experiment_runs.repository import RunRepository
 from experiment_runs.service import RunService
 
 STARTUP_FAILED = 3
+STORE_UNREADABLE = 4
 
 
 @dataclass(frozen=True)
@@ -88,9 +94,11 @@ def serve(startup: Startup, logger: EventLogger) -> bool:
         startup.app, host=settings.host, port=settings.port, log_level="warning"
     )
     server = _Server(config, on_started)
-    # Uvicorn re-raises the SIGTERM it handled once it has shut down; with the
-    # default handler that kills the process before we can log the shutdown.
-    previous = signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    # Uvicorn re-raises the SIGINT or SIGTERM it handled once it has shut
+    # down. With the default handlers that would kill the process (or raise
+    # KeyboardInterrupt) before the shutdown is logged, so absorb them here.
+    handled = (signal.SIGINT, signal.SIGTERM)
+    previous = {s: signal.signal(s, lambda signum, frame: None) for s in handled}
     try:
         server.run()
     except SystemExit:
@@ -98,7 +106,8 @@ def serve(startup: Startup, logger: EventLogger) -> bool:
             raise
         return False
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
     return True
 
 
@@ -120,6 +129,14 @@ def main(env: Mapping[str, str] | None = None) -> int:
             quarantined_path=str(exc.quarantined_path),
         )
         return 1
+    except StoreUnreadableError as exc:
+        logger.log(
+            "server.start_failed",
+            reason="store_unreadable",
+            store_path=str(exc.store_path),
+            error=exc.message,
+        )
+        return STORE_UNREADABLE
 
     if not serve(startup, logger):
         logger.log(

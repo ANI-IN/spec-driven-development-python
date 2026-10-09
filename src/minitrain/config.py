@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import numbers
 from dataclasses import dataclass
+
+import numpy as np
 
 
 class ConfigError(ValueError):
@@ -23,9 +27,23 @@ class TrainingConfig:
     seed: int = 7
 
     def __post_init__(self) -> None:
-        if not self.learning_rate > 0:
-            raise ConfigError(f"learning_rate must be > 0, got {self.learning_rate}")
-        if self.max_epochs < 1:
-            raise ConfigError(f"max_epochs must be >= 1, got {self.max_epochs}")
-        if self.batch_size < 1:
-            raise ConfigError(f"batch_size must be >= 1, got {self.batch_size}")
+        rate = self.learning_rate
+        if isinstance(rate, bool) or not isinstance(rate, numbers.Real):
+            raise ConfigError(f"learning_rate must be a number, got {rate!r}")
+        if not math.isfinite(rate) or rate <= 0:
+            raise ConfigError(f"learning_rate must be finite and > 0, got {rate}")
+        object.__setattr__(self, "learning_rate", float(rate))
+        for name, minimum in (("max_epochs", 1), ("batch_size", 1), ("seed", 0)):
+            value = getattr(self, name)
+            if not _is_integer(value):
+                raise ConfigError(f"{name} must be an integer, got {value!r}")
+            if value < minimum:
+                raise ConfigError(f"{name} must be >= {minimum}, got {value}")
+            object.__setattr__(self, name, int(value))
+
+
+def _is_integer(value: object) -> bool:
+    """Python and NumPy integers, but not booleans."""
+    return isinstance(value, numbers.Integral) and not isinstance(
+        value, bool | np.bool_
+    )

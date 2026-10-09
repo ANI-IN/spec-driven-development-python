@@ -10,7 +10,7 @@ Full behavioral spec: [specs/001-experiment-runs/spec.md](./specs/001-experiment
 
 ## Prerequisites
 
-- Python 3.10 or newer (`python3 --version`).
+- Python 3.10 or newer (`python3 --version` must print 3.10 or later).
 
 ## Setup
 
@@ -45,9 +45,10 @@ python -m experiment_runs
 ```
 
 Defaults: host `127.0.0.1`, port `8000`, store `data/runs.json`. Override with
-the `HOST`, `PORT`, and `STORE_PATH` environment variables. Once the server is
-listening, one JSON log line goes to stdout saying whether the store existed
-and how many runs were loaded.
+the `HOST`, `PORT`, and `STORE_PATH` environment variables. Startup prints two
+JSON lines to stdout: one about the store (`store.initialized` or
+`store.loaded`), then `server.started` once the server is listening, saying
+whether the store existed and how many runs were loaded.
 
 For curl scenarios covering each user story, see
 [specs/001-experiment-runs/quickstart.md](./specs/001-experiment-runs/quickstart.md).
@@ -62,4 +63,5 @@ For curl scenarios covering each user story, see
   of silently starting empty.
 - Exit codes: `0` clean shutdown (Ctrl+C or SIGTERM), `1` corrupt store
   (quarantined), `2` invalid configuration, `3` the server could not start
-  (for example, the port is taken).
+  (for example, the port is taken), `4` the store exists but cannot be read
+  (it is left untouched).

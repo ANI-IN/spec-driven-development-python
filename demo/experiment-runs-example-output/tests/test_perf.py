@@ -21,7 +21,9 @@ from tests.conftest import LogCapture
 
 pytestmark = [
     pytest.mark.perf,
-    pytest.mark.skipif(bool(os.environ.get("CI_SKIP_PERF")), reason="CI_SKIP_PERF set"),
+    pytest.mark.skipif(
+        os.environ.get("CI_SKIP_PERF", "") not in ("", "0"), reason="CI_SKIP_PERF set"
+    ),
 ]
 
 BUDGET_MS = 100.0

@@ -1,6 +1,6 @@
 # Spec-Driven Development with Spec Kit
 
-**Executable specs · `/speckit-*` pipeline · Constitution-enforced · Python end to end**
+**Executable specs · `/speckit-*` pipeline · Constitution-checked · Python end to end**
 
 Spec-Driven Development treats the specification as **executable intent**.
 Instead of coding first and writing docs later, you start with a spec, and the
@@ -21,8 +21,9 @@ the implementation.
 
 Spec-driven development flips that failure mode. Every ambiguity is **surfaced
 as a question before code exists**. Every architectural decision goes into a
-plan the agent must respect. Every requirement is traced to at least one task
-before the agent writes anything.
+plan the agent must respect. And `/speckit-analyze` checks that every
+requirement maps to at least one task before the agent writes anything,
+flagging the ones that don't.
 
 ## 02. The Pipeline
 
@@ -149,14 +150,15 @@ get flag errors, this is why.
 
 # Demo: Build an Experiment Runs API with Spec Kit
 
-**Full pipeline · Python, FastAPI, Pydantic, pytest · about 75 to 90 minutes**
+**Full pipeline · Python, FastAPI, Pydantic, pytest · about 75 to 100 minutes**
 
 You will take a plain-language description of an **Experiment Runs API**, a
 small service where an ML engineer logs training runs, and drive it through
 the pipeline: constitution → specify → clarify → plan → tasks → analyze →
 implement. At the end you will have about 35 generated tasks and a working,
 tested service, none of which you wrote by hand. The per-phase times below
-add up to about 75 minutes; allow longer for implement on a slow machine.
+add up to about 75 to 100 minutes, most of the spread being the implement
+phase.
 
 ## 01. Why This Demo
 
@@ -221,8 +223,9 @@ Notice:
 - **`.claude/skills/speckit-*/SKILL.md`**: ten Spec Kit skills registered with
   Claude Code. You use seven in this demo; `/speckit-checklist`,
   `/speckit-converge`, and `/speckit-taskstoissues` are optional extras.
-- **`.specify/memory/`, `.specify/templates/`, `.specify/scripts/python/`**:
-  the toolkit's working area.
+- **`.specify/memory/`, `.specify/templates/`, `.specify/scripts/`**: the
+  toolkit's working area. `--script py` makes the skills use
+  `scripts/python/`; Spec Kit installs `scripts/bash/` alongside it.
 - **No application code yet.** The toolkit installed a *workflow*, not a
   project.
 
@@ -281,7 +284,12 @@ Why this matters:
 > Every later phase is checked against this file. If `/speckit-plan` ignores
 > principle 5, you catch the violation before any code exists.
 
-Commit: `git add -A && git commit -m "Add project constitution"`.
+Commit, keeping Claude Code's local settings out of git:
+
+```bash
+echo ".claude/settings.local.json" >> .gitignore
+git add -A && git commit -m "Add project constitution"
+```
 
 ## 06. Phase 1: Specify
 
@@ -391,7 +399,8 @@ well as in the constitution. Expect:
 - Each task in the strict format `- [ ] Txxx [P?] [Story?] Description with file path`.
 - `[P]` markers on tasks whose files are independent.
 - `[USn]` tags tying tasks to user stories.
-- A **suggested MVP scope**.
+- A **suggested MVP scope** (minimum viable product: the smallest set of
+  phases worth shipping on its own).
 - **Test-first ordering**: every implementation task depends on a test task
   that comes before it. Check this yourself; it is the rule agents most often
   bend for "plumbing" tasks such as wiring up the app.
@@ -432,7 +441,7 @@ have become production bugs.
 
 ## 11. Phase 4: Implement
 
-*(about 15 min)*
+*(about 15 to 40 min, depending on the machine and the model)*
 
 ```text
 /speckit-implement
@@ -455,8 +464,9 @@ items, `/speckit-implement` stops and asks before it starts.
 
 What to watch for:
 
-- Each phase should end green before the next one starts. That is the
-  test-first principle at work.
+- Each phase should end green before the next one starts, except tests that
+  `tasks.md` says wait for a later phase. That is the test-first principle at
+  work.
 - When a test fails, the fix belongs upstream: trace it to a spec or plan gap
   first.
 
@@ -507,7 +517,9 @@ find .specify/memory specs -type f | sort
   writes no application code.
 - Walk the pipeline in order: constitution → specify → clarify → plan →
   tasks → analyze → implement.
-- Non-negotiable principles are enforced automatically in plan and tasks.
+- Constitution principles are checked in plan (Constitution Check gates) and
+  analyze (CRITICAL findings); tasks reads them too, but check the test-first
+  ordering yourself.
 - Clarify asks multiple-choice questions with a recommended option.
 - `/speckit-analyze` finds the last gaps between requirements and tasks, and
   offers fixes you approve.
@@ -532,6 +544,7 @@ artifact of the spec.*
 | `/speckit-implement` skips tasks | Task descriptions too vague | Re-run `/speckit-tasks` with the "working repo after every task" rule, then `/speckit-analyze` |
 | Tests fail during implement | A spec or plan gap, not an agent error | Trace it to the spec first; patch the spec, then re-run |
 | Old blog commands (`/specify`) do nothing | The blog predates v1.x | Use the `speckit-` prefix on every command |
+| `specify init` stops with `Agent Detection Error: claude not found` | Claude Code is not on `PATH` | Install Claude Code and open a new shell, or add `--ignore-agent-tools` to scaffold anyway |
 
 ## 15. Next Steps
 

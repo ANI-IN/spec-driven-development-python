@@ -23,6 +23,10 @@ the temp file and re-raise. If the directory did not exist, create it and
 the store, so a failed directory `fsync` after it is not raised (raising would
 make the service report a failure for a change that is already on disk); the
 helper returns `False` and the repository logs `store.write_not_durable`.
+On macOS the file is flushed with `fcntl(F_FULLFSYNC)`, because plain `fsync`
+there only reaches the drive's cache. Every missing directory on the way to
+the store is created and made durable, top-down, and an existing store keeps
+its permission bits.
 
 **Rationale**:
 
@@ -60,7 +64,7 @@ helper returns `False` and the repository logs `store.write_not_durable`.
 | `RunAlreadyFinishedError` | 409 | `{"error": "already_finished", "message"}` |
 | `StoreWriteError` | 500 | `{"error": "internal_error", "message": "write failed"}` |
 | `StoreCorruptError` | 500 | `{"error": "internal_error", "message": "store is corrupt"}` (normally seen only at startup, see Decision 5) |
-| Framework `HTTPException` (unknown path, wrong method) | 404 / 405 / 400 | `{"error": "not_found" \| "method_not_allowed" \| "bad_request", "message"}` |
+| Framework `HTTPException` (unknown path, wrong method) | 404 / 405 / 400 | `{"error": "not_found" \| "method_not_allowed" \| "bad_request", "message"}`; a 405 keeps its `Allow` header |
 | Any other exception | 500 | `{"error": "internal_error", "message": "unexpected error"}`, logged with its stack |
 
 **Rationale**: keeps constitution III (branch on class, never on text) and IV
@@ -72,8 +76,11 @@ one validation status whether the schema or the service caught the problem.
 
 **Decision**: Pydantic schemas check *shape and type* with strict types
 (`StrictStr`, `StrictInt`, `StrictFloat`, `StrictBool`) and
-`extra="forbid"`. The service checks *business rules*: trimmed names are not
-empty, length limits, budget range, finite numbers, entry counts.
+`extra="forbid"`. The service checks *business rules*, including types, so
+that it never stores something the loader would reject: names are strings
+and not blank after trimming, length limits, the budget is a whole number in
+range, hyperparameters are scalars, metrics are finite numbers (not
+booleans), entry counts.
 
 **Rationale**: strict types stop silent coercion (`"30"` is not a budget,
 `true` is not a metric). Python's JSON parser accepts `NaN` and `Infinity`,
@@ -101,18 +108,20 @@ Indented JSON makes the store easy to read when debugging.
 and `run_count`) only after the socket is listening. `main.main()` maps
 failures to exit codes: `1` for a corrupt store (after quarantine), `2` for
 invalid configuration, `3` when the server cannot start (for example, the
-port is taken), and `0` after a clean shutdown from Ctrl+C or SIGTERM. Every
+port is taken), `4` when the store exists but cannot be read (it is left
+untouched), and `0` after a clean shutdown from Ctrl+C or SIGTERM. Every
 failure logs `server.start_failed` with a `reason`; a clean shutdown logs
 `server.stopped`.
 
 **Rationale**: splitting `build` from `serve` lets tests check startup
 behavior without starting a server. Logging `server.started` after the bind
 means the line never claims a server that is not there. Uvicorn re-raises the
-SIGTERM it handled once it has shut down, which would kill the process before
-the shutdown line; the entry point installs a no-op SIGTERM handler around
-`serve()` so the re-raised signal is absorbed. Distinct exit codes let a
+SIGINT or SIGTERM it handled once it has shut down, which would kill the
+process (or raise `KeyboardInterrupt`) before the shutdown line; the entry
+point installs no-op handlers for both around `serve()` so the re-raised
+signal is absorbed. Distinct exit codes let a
 supervisor tell "fix the config" from "inspect the quarantined store" from
-"free the port".
+"free the port" from "fix the store's permissions".
 
 ## Decision 6: Serializing writes and in-memory state
 

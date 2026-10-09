@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import random
 from pathlib import Path
 
@@ -15,11 +16,17 @@ def test_hundred_restart_cycles_lose_nothing(tmp_path: Path) -> None:
     logs = LogCapture()
     clock = FakeClock()
     rng = random.Random(7)
+    counter = itertools.count()
     expected: dict[str, tuple[str, str]] = {}
 
     for cycle in range(100):
         repository = RunRepository(store, logs.logger)
-        service = RunService(repository, repository.load().runs, clock=clock)
+        service = RunService(
+            repository,
+            repository.load().runs,
+            clock=clock,
+            new_id=lambda: f"run-{next(counter):05d}",  # reproducible order
+        )
         assert {
             v.run.id: (v.run.name, v.run.status) for v in service.list_runs()
         } == expected

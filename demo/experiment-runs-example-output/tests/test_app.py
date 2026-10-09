@@ -96,3 +96,9 @@ def test_framework_errors_use_the_error_shape(
     assert set(body) == {"error", "message"}
     [line] = logs.events("request.error")
     assert line["operation"] == "unknown"
+
+
+def test_405_keeps_the_allow_header(client: TestClient) -> None:
+    response = client.put("/runs")
+    assert response.status_code == 405
+    assert "POST" in response.headers["allow"]

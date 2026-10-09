@@ -36,5 +36,7 @@
   storage (a local file), timestamp handling (UTC), input limits, and the
   no-pagination scope are recorded in the Assumptions section.
 - The spec deliberately avoids naming the language, framework, storage
-  format, or wire format; those belong in `/speckit-plan`.
+  format, or wire format; those belong in `/speckit-plan`. (Clarify later
+  added JSON log lines and UUID v4 identifiers: both are observable behavior
+  the user chose, not implementation details.)
 - Ready for `/speckit-clarify` (optional) or `/speckit-plan`.

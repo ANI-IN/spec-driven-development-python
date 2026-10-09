@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -91,6 +93,27 @@ def test_main_exits_3_when_the_server_cannot_start(
     assert "server.stopped" not in [e["event"] for e in events]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions"
+)
+def test_main_exits_4_on_an_unreadable_store_and_leaves_it_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = tmp_path / "locked" / "runs.json"
+    store.parent.mkdir()
+    store.write_text("{}")
+    store.chmod(0o000)
+    try:
+        assert main({"STORE_PATH": str(store)}) == 4
+    finally:
+        store.chmod(0o644)
+    failed = stdout_events(capsys)[-1]
+    assert failed["event"] == "server.start_failed"
+    assert failed["reason"] == "store_unreadable"
+    assert store.read_text() == "{}"
+    assert [p.name for p in store.parent.iterdir()] == ["runs.json"]
+
+
 # Real processes ----------------------------------------------------------------
 
 
@@ -101,44 +124,80 @@ def free_port() -> int:
         return port
 
 
-def start_server(tmp_path: Path, port: int) -> subprocess.Popen[str]:
-    env = {**os.environ, "PORT": str(port), "STORE_PATH": str(tmp_path / "r.json")}
-    return subprocess.Popen(
-        [sys.executable, "-m", "experiment_runs"],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+class Server:
+    """A real server process whose stdout events are read on a thread."""
+
+    def __init__(self, store: Path, port: int) -> None:
+        env = {**os.environ, "PORT": str(port), "STORE_PATH": str(store)}
+        self.proc = subprocess.Popen(
+            [sys.executable, "-m", "experiment_runs"],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        self.events: queue.Queue[Event | None] = queue.Queue()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+
+    def _read(self) -> None:
+        assert self.proc.stdout is not None
+        for line in self.proc.stdout:
+            self.events.put(json.loads(line))
+        self.events.put(None)
+
+    def wait_for(self, name: str, timeout: float = 15) -> Event | None:
+        """The first event called ``name``, or None if the output ended first."""
+        deadline = time.monotonic() + timeout
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                event = self.events.get(timeout=remaining)
+            except queue.Empty:
+                break
+            if event is None:
+                return None
+            if event["event"] == name:
+                return event
+        raise AssertionError(f"{name} was not logged within {timeout}s")
+
+    def remaining_events(self) -> list[str]:
+        self._reader.join(timeout=15)
+        names: list[str] = []
+        while not self.events.empty():
+            event = self.events.get()
+            if event is not None:
+                names.append(str(event["event"]))
+        return names
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.kill()
+        self.proc.wait(timeout=15)
+        self._reader.join(timeout=15)
+        assert self.proc.stdout is not None
+        self.proc.stdout.close()
 
 
-def wait_for_event(proc: subprocess.Popen[str], name: str) -> Event:
-    assert proc.stdout is not None
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            break
-        event: Event = json.loads(line)
-        if event["event"] == name:
-            return event
-    raise AssertionError(f"{name} was never logged")
+def started_server(store: Path) -> Server:
+    """Start a server on a free port, retrying if another process took it."""
+    for _ in range(3):
+        server = Server(store, free_port())
+        if server.wait_for("server.started") is not None:
+            return server
+        server.close()
+    raise AssertionError("server never started")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM is POSIX only")
-def test_sigterm_shuts_down_cleanly(tmp_path: Path) -> None:
-    proc = start_server(tmp_path, free_port())
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals only")
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
+def test_signals_shut_down_cleanly(tmp_path: Path, signum: signal.Signals) -> None:
+    server = started_server(tmp_path / "r.json")
     try:
-        started = wait_for_event(proc, "server.started")
-        assert started["store_existed"] is False
-        proc.send_signal(signal.SIGTERM)
-        assert proc.wait(timeout=15) == 0
-        assert proc.stdout is not None
-        remaining = [json.loads(line)["event"] for line in proc.stdout]
-        assert remaining[-1] == "server.stopped"
+        server.proc.send_signal(signum)
+        assert server.proc.wait(timeout=15) == 0
+        assert server.remaining_events()[-1:] == ["server.stopped"]
     finally:
-        proc.kill()
-        proc.wait()
+        server.close()
 
 
 def test_port_in_use_exits_3_without_claiming_to_have_started(
@@ -147,12 +206,11 @@ def test_port_in_use_exits_3_without_claiming_to_have_started(
     with socket.socket() as blocker:
         blocker.bind(("127.0.0.1", 0))
         blocker.listen()
-        proc = start_server(tmp_path, blocker.getsockname()[1])
+        server = Server(tmp_path / "r.json", blocker.getsockname()[1])
         try:
-            out, _ = proc.communicate(timeout=30)
+            assert server.proc.wait(timeout=30) == 3
+            events = server.remaining_events()
         finally:
-            proc.kill()
-    events = [json.loads(line)["event"] for line in out.splitlines()]
-    assert proc.returncode == 3
+            server.close()
     assert "server.started" not in events
     assert events[-1] == "server.start_failed"

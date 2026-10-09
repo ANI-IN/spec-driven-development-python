@@ -77,8 +77,11 @@ You need Python 3.10 or newer, `git`, and Claude Code (installed and signed
 in) for the lab. The Spec Kit demo also needs
 [`uv`](https://docs.astral.sh/uv/).
 
-To do the lab you will push a branch, so fork the repository on GitHub first
-and clone your fork. To only read and run the code, clone it directly:
+Check `python3 --version` first: it must print 3.10 or newer. To do the lab
+you will push a branch, so fork the repository on GitHub first and clone your
+fork. In GitHub's fork dialog, **untick "Copy the main branch only"** so your
+fork also gets the `solution/early-stopping` branch. To only read and run the
+code, clone it directly:
 
 ```bash
 git clone https://github.com/ANI-IN/spec-driven-development-python.git
@@ -131,10 +134,10 @@ pytest
    [demo README](demo/README.md) (about 10 minutes).
 2. Do the [lab](lab/README.md): read the PRD, write `spec.md`, build early
    stopping with Claude Code, and fill in the [worksheet](lab/worksheet.md)
-   (about 90 minutes).
+   (about 100 minutes).
 3. Run the [Spec Kit demo](demo/README.md#demo-build-an-experiment-runs-api-with-spec-kit)
    in a scratch directory and compare each phase with the worked example
-   (about 75 to 90 minutes).
+   (about 75 to 100 minutes).
 
 The same material is collected in
 [`docs/spec-driven-development.docx`](docs/spec-driven-development.docx) if
@@ -151,6 +154,15 @@ you prefer one document.
 git fetch origin
 git log --oneline main..origin/solution/early-stopping
 git diff main origin/solution/early-stopping --stat
+```
+
+If your fork has only `main`, fetch the solution from the upstream repository
+and use `upstream/solution/early-stopping` in place of
+`origin/solution/early-stopping`:
+
+```bash
+git remote add upstream https://github.com/ANI-IN/spec-driven-development-python.git
+git fetch upstream solution/early-stopping
 ```
 
 ## 7. Quality Gates

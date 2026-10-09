@@ -109,11 +109,9 @@ components:
         type: string
   schemas:
     Scalar:
-      oneOf:
-        - type: string
-        - type: integer
-        - type: number
-        - type: boolean
+      # Integers are numbers in JSON Schema, so they are covered by "number".
+      type: [string, number, boolean]
+      description: A string, number, or boolean; objects and arrays are rejected.
     CreateRunRequest:
       type: object
       additionalProperties: false

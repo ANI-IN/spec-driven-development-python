@@ -16,8 +16,10 @@ model see [data-model.md](./data-model.md), and for the wire format see
 ## Setup
 
 ```bash
+python3 --version                # must print 3.10 or newer
 python3 -m venv .venv
 source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
@@ -36,14 +38,15 @@ It includes:
   `POST /runs/{run_id}/finish`, and `DELETE /runs/{run_id}`: status codes and
   body shapes match [contracts/openapi.yaml](./contracts/openapi.yaml).
 - **Atomic-write tests** (`tests/test_atomic_write.py`): 50 simulated crashes,
-  each at a random one of five syscalls, plus 25 real `SIGKILL`s of a writer
+  each at a random one of five steps, plus 25 real `SIGKILL`s of a writer
   process (POSIX only).
 - **Service tests** (`tests/test_service.py`): ordering (FR-004a), stalled
-  detection (FR-009), conflict on a second finish (FR-006), and not found on
-  unknown ids (FR-008).
-- **Repository and startup tests**: missing store, valid store, and corrupt
-  store (renamed to `<path>.corrupt.<timestamp>`; the process exits with
-  code 1).
+  detection (FR-009), conflict on a second finish (FR-006), not found on
+  unknown ids (FR-008), and concurrent writes (FR-015).
+- **Repository and startup tests**: missing, valid, corrupt (renamed to
+  `<path>.corrupt.<timestamp>`; exit code 1), and unreadable stores (left
+  alone; exit code 4), plus real server processes stopped with Ctrl+C
+  (SIGINT) and SIGTERM.
 
 To skip the latency check on slow shared CI machines:
 
@@ -53,51 +56,59 @@ CI_SKIP_PERF=1 pytest            # PowerShell: $env:CI_SKIP_PERF=1; pytest
 
 ## Run the service
 
+Pick a port and set it in **both** terminals you will use (8000 is the
+default; if another program already uses it, the server exits with code 3):
+
 ```bash
+export PORT=8000                 # PowerShell: $env:PORT=8000
 python -m experiment_runs
 ```
 
 Defaults: host `127.0.0.1`, port `8000`, store `data/runs.json`. Override with
-`HOST`, `PORT`, and `STORE_PATH`. Once the server is listening, one JSON line
-is printed:
+`HOST`, `PORT`, and `STORE_PATH`. Startup prints two JSON lines: one about the
+store (`store.initialized`, or `store.loaded` with a `count`), then, once the
+server is listening, `server.started`:
 
 ```json
+{"timestamp": "...", "event": "store.initialized", "existed": false, "store_path": "data/runs.json"}
 {"timestamp": "...", "event": "server.started", "host": "127.0.0.1", "port": 8000, "store_path": "data/runs.json", "store_existed": false, "run_count": 0}
 ```
 
-Run the scenarios below from a second terminal.
+Stop it with Ctrl+C: it logs `server.stopped` and exits with code 0. Run the
+scenarios below from a second terminal (with `PORT` set there too).
 
 ## User Story 1: log and list runs
 
 ```bash
-curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
+curl -s -X POST localhost:$PORT/runs -H 'content-type: application/json' \
   -d '{"name": "baseline", "model_type": "logistic_regression",
        "hyperparameters": {"learning_rate": 0.05, "epochs": 20}}'
 # the new run: "status": "running", "stalled": false, a UUID v4 "id"
 # (add -i to curl to see the 201 status line)
 
-curl -s localhost:8000/runs
+curl -s localhost:$PORT/runs
 # a JSON array containing the run
 
-curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
+curl -s -X POST localhost:$PORT/runs -H 'content-type: application/json' \
   -d '{"name": "   ", "model_type": "mlp"}'
 # 400 {"error": "validation_error", ..., "details": [{"field": "name", ...}]}
 ```
 
 ## User Story 2: survive a crash
 
-Note the run ids. From the second terminal, kill the server abruptly (this
-matches any process whose command line contains `experiment_runs`):
+Note the run ids. From the second terminal, kill the server abruptly. This
+targets only the process listening on your port (`lsof` is on macOS and most
+Linux systems):
 
 ```bash
-pkill -9 -f experiment_runs
+kill -9 $(lsof -t -iTCP:$PORT -sTCP:LISTEN)
 ```
 
 Start it again in the first terminal with `python -m experiment_runs`, then
 list the runs from the second terminal:
 
 ```bash
-curl -s localhost:8000/runs      # the same runs, same ids
+curl -s localhost:$PORT/runs     # the same runs, same ids
 ```
 
 Corrupt-store recovery:
@@ -114,30 +125,34 @@ python -m experiment_runs        # starts with an empty store
 ## User Story 3: finish and delete
 
 ```bash
-RUN=$(curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
+RUN=$(curl -s -X POST localhost:$PORT/runs -H 'content-type: application/json' \
   -d '{"name": "xgb-depth6", "model_type": "xgboost"}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 
-curl -s -X POST localhost:8000/runs/$RUN/finish -H 'content-type: application/json' \
+curl -s -X POST localhost:$PORT/runs/$RUN/finish -H 'content-type: application/json' \
   -d '{"metrics": {"val_auc": 0.91, "val_loss": 0.33}}'
 # 200, "status": "finished", the metrics, a "finished_at"
 
-curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/runs/$RUN/finish \
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:$PORT/runs/$RUN/finish \
   -H 'content-type: application/json' -d '{"metrics": {"val_auc": 0.99}}'
 # 409; the original metrics are kept
 
-curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:8000/runs/$RUN   # 204
-curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:8000/runs/$RUN   # 404
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:$PORT/runs/$RUN   # 204
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:$PORT/runs/$RUN   # 404
 ```
 
 ## User Story 4: stalled runs at a glance
 
+Create the long job first, so that only the stalled-first rule can put the
+quick check ahead of it:
+
 ```bash
-curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
-  -d '{"name": "quick-check", "model_type": "mlp", "time_budget_minutes": 1}'
-curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
+curl -s -X POST localhost:$PORT/runs -H 'content-type: application/json' \
   -d '{"name": "long-job", "model_type": "mlp", "time_budget_minutes": 600}'
+curl -s -X POST localhost:$PORT/runs -H 'content-type: application/json' \
+  -d '{"name": "quick-check", "model_type": "mlp", "time_budget_minutes": 1}'
 sleep 65
-curl -s localhost:8000/runs
-# "quick-check" is first with "stalled": true; "long-job" has "stalled": false
+curl -s localhost:$PORT/runs
+# "quick-check" is listed first with "stalled": true, although it started
+# later; "long-job" follows with "stalled": false
 ```

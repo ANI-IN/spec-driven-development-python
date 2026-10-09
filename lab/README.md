@@ -1,7 +1,8 @@
 # Lab: Write the Spec, Then Build Early Stopping
 
-**Time:** about 90 minutes (5 to read the PRD, 20 to write the spec, 40 to
-build, 15 for tests, 10 to trace defects and lock the build).
+**Time:** about 100 minutes: 10 to read the setup material, then 5 to read
+the PRD, 20 to write the spec, 40 to build, 15 for tests, and 10 to trace
+defects and lock the build.
 
 **Output:** a branch `feature/early-stopping-<initials>` with a committed
 `spec.md`, an implementation, and at least one passing acceptance test.
@@ -67,7 +68,9 @@ questions; find at least one it does not list.
 
 ### 3. Drive the implementation through Plan Mode (40 min)
 
-- Start Claude Code at the repo root and point it at `spec.md`.
+- Start Claude Code at the repo root and point it at `spec.md`. (You may see
+  `/speckit-*` skills in the autocomplete menu; they belong to the demo
+  folder, so ignore them here.)
 - Use Plan Mode (press `Shift+Tab` until the mode indicator shows plan mode)
   so you review the plan before any file changes.
 - Implement against the spec. When a gap surfaces, **patch the spec first,
@@ -135,9 +138,16 @@ git log --oneline main..origin/solution/early-stopping
 ```
 
 The log shows the spec-first loop: the first draft of the spec, the patches
-made when implementation exposed its gaps, and then the code. (If your fork
-copied only `main`, add the original repository as a second remote and fetch
-`solution/early-stopping` from it.)
+made when implementation exposed its gaps, and then the code.
+
+If your fork has only `main` (GitHub's default), fetch the solution from the
+upstream repository, then use `upstream/solution/early-stopping` in place of
+`origin/solution/early-stopping` in the commands above:
+
+```bash
+git remote add upstream https://github.com/ANI-IN/spec-driven-development-python.git
+git fetch upstream solution/early-stopping
+```
 
 Your spec does not have to match it. Look at the decisions it made that yours
 did not, and ask which of your gaps would have become defects.

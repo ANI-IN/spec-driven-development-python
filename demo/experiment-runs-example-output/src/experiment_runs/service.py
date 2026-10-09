@@ -153,6 +153,9 @@ class RunService:
 def _required_text(
     field: str, value: str, max_length: int, errors: list[FieldError]
 ) -> str:
+    if not isinstance(value, str):
+        errors.append(FieldError(field, "must be a string"))
+        return ""
     clean = value.strip()
     if not clean:
         errors.append(FieldError(field, "must not be empty or whitespace"))
@@ -162,7 +165,7 @@ def _required_text(
 
 
 def _check_key(field: str, key: str, errors: list[FieldError]) -> bool:
-    if not key.strip() or len(key) > KEY_MAX_LENGTH:
+    if not isinstance(key, str) or not key.strip() or len(key) > KEY_MAX_LENGTH:
         errors.append(
             FieldError(field, f"keys must be 1 to {KEY_MAX_LENGTH} non-blank chars")
         )
@@ -180,13 +183,19 @@ def _hyperparameters(
     for key, value in values.items():
         field = f"hyperparameters.{key}"
         _check_key("hyperparameters", key, errors)
-        if isinstance(value, float) and not math.isfinite(value):
+        if not isinstance(value, str | int | float | bool):
+            errors.append(FieldError(field, "must be a string, number, or boolean"))
+        elif isinstance(value, float) and not math.isfinite(value):
             errors.append(FieldError(field, "must be a finite number"))
     return dict(values)
 
 
 def _check_budget(minutes: int | None, errors: list[FieldError]) -> None:
-    if minutes is not None and not 1 <= minutes <= TIME_BUDGET_MAX_MINUTES:
+    if minutes is None:
+        return
+    if isinstance(minutes, bool) or not isinstance(minutes, int):
+        errors.append(FieldError("time_budget_minutes", "must be a whole number"))
+    elif not 1 <= minutes <= TIME_BUDGET_MAX_MINUTES:
         errors.append(
             FieldError(
                 "time_budget_minutes",
@@ -204,6 +213,9 @@ def _metrics(values: Mapping[str, float]) -> dict[str, float]:
     clean: dict[str, float] = {}
     for key, value in values.items():
         if not _check_key("metrics", key, errors):
+            continue
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            errors.append(FieldError(f"metrics.{key}", "must be a number"))
             continue
         try:
             number = float(value)

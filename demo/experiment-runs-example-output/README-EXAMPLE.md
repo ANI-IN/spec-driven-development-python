@@ -52,6 +52,7 @@ tests pass, `mypy --strict` is clean, and `ruff check` and `ruff format
 cd demo/experiment-runs-example-output
 python3 -m venv .venv
 source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 pytest
 ```

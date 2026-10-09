@@ -356,3 +356,33 @@ def test_sc003_stalled_flags_and_order_on_a_mixed_store(
     assert flagged == expected_stalled
     first = [v.run.id for v in views[: len(expected_stalled)]]
     assert set(first) == expected_stalled
+
+
+# Type rules apply however the service is called (research.md, Decision 3) ----
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "field"),
+    [
+        ({"time_budget_minutes": True}, "time_budget_minutes"),
+        ({"time_budget_minutes": 2.5}, "time_budget_minutes"),
+        ({"hyperparameters": {"layers": [64, 32]}}, "hyperparameters.layers"),
+        ({"name": 42}, "name"),
+        ({"model_type": None}, "model_type"),
+    ],
+)
+def test_wrong_types_are_rejected_not_stored(
+    service: RunService, store_path: Path, kwargs: dict[str, object], field: str
+) -> None:
+    args: dict[str, object] = {"name": "ok", "model_type": "m", **kwargs}
+    with pytest.raises(ValidationError) as caught:
+        service.create(**args)  # type: ignore[arg-type]  # deliberately bad input
+    assert field in [d.field for d in caught.value.details]
+    assert not store_path.exists()
+
+
+@pytest.mark.parametrize("value", [True, "0.5", None])
+def test_metric_values_must_be_numbers(service: RunService, value: object) -> None:
+    run_id = service.create(name="r", model_type="m").run.id
+    with pytest.raises(ValidationError):
+        service.finish(run_id, {"auc": value})  # type: ignore[dict-item]  # bad input

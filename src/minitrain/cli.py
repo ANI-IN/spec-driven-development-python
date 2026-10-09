@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import sys
 from collections.abc import Sequence
 
@@ -35,7 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def format_report(result: TrainingResult) -> str:
-    best = min(result.history, key=lambda m: m.val_loss)
+    finite = [m for m in result.history if math.isfinite(m.val_loss)]
+    best = min(finite or result.history, key=lambda m: m.val_loss)
     last = result.history[-1]
     lines = [
         f"run_id            {result.run_id}",

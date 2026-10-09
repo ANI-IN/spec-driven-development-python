@@ -18,6 +18,7 @@ from experiment_runs.atomic_write import atomic_write_bytes
 from experiment_runs.errors import (
     InvalidRecordError,
     StoreCorruptError,
+    StoreUnreadableError,
     StoreWriteError,
 )
 from experiment_runs.logger import EventLogger
@@ -39,24 +40,34 @@ class RunRepository:
         self._write_lock = threading.Lock()
 
     def load(self) -> LoadResult:
-        """Read every run, or quarantine the file and raise if it is unusable."""
-        if not self.store_path.exists():
-            self._logger.log(
-                "store.initialized", existed=False, store_path=str(self.store_path)
-            )
-            return LoadResult(runs=[], existed=False)
+        """Read every run.
+
+        A store that cannot be *read* raises :class:`StoreUnreadableError` and
+        is left alone. A store that is read but cannot be *parsed* is
+        quarantined and raises :class:`StoreCorruptError`.
+        """
+        try:
+            exists = self.store_path.exists()
+            if not exists:
+                self._logger.log(
+                    "store.initialized", existed=False, store_path=str(self.store_path)
+                )
+                return LoadResult(runs=[], existed=False)
+            if not self.store_path.is_file():
+                raise IsADirectoryError(f"{self.store_path} is not a regular file")
+            raw = self.store_path.read_bytes()
+        except OSError as exc:
+            raise self._unreadable(exc) from exc
 
         try:
-            document = json.loads(self.store_path.read_bytes())
-            runs = _parse_document(document)
-        except (
-            OSError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            RecursionError,
-            InvalidRecordError,
-        ) as exc:
-            quarantined = self._quarantine()
+            # ValueError covers JSONDecodeError, UnicodeDecodeError, and
+            # integers with more digits than Python will parse.
+            runs = _parse_document(json.loads(raw))
+        except (ValueError, RecursionError, InvalidRecordError) as exc:
+            try:
+                quarantined = self._quarantine()
+            except OSError as move_error:
+                raise self._unreadable(move_error) from exc
             self._logger.log(
                 "store.quarantined",
                 store_path=str(self.store_path),
@@ -75,6 +86,17 @@ class RunRepository:
             store_path=str(self.store_path),
         )
         return LoadResult(runs=runs, existed=True)
+
+    def _unreadable(self, exc: OSError) -> StoreUnreadableError:
+        self._logger.log(
+            "store.unreadable",
+            store_path=str(self.store_path),
+            error_class=type(exc).__name__,
+            error=str(exc),
+        )
+        return StoreUnreadableError(
+            f"cannot access store {self.store_path}: {exc}", self.store_path
+        )
 
     def save_all(self, runs: Sequence[Run]) -> None:
         """Atomically replace the store with ``runs``. Writes never interleave."""

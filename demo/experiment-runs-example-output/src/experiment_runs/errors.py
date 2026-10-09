@@ -54,5 +54,16 @@ class StoreCorruptError(AppError):
         self.quarantined_path = quarantined_path
 
 
+class StoreUnreadableError(AppError):
+    """The store exists but cannot be read (permissions, or not a file).
+
+    Unlike corruption, nothing is renamed: fixing access is enough.
+    """
+
+    def __init__(self, message: str, store_path: Path) -> None:
+        super().__init__(message)
+        self.store_path = store_path
+
+
 class StoreWriteError(AppError):
     """Persisting the store failed. The previous contents are intact."""

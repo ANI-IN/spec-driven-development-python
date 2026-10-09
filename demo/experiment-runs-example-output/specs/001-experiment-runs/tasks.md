@@ -12,13 +12,13 @@ description: "Task list for the Experiment Runs API (001-experiment-runs)"
 
 ## Format: `- [ ] [ID] [P?] [Story?] Description`
 
-- **[P]**: can run in parallel with other [P] tasks in the same phase (different files, no ordering dependency).
+- **[P]**: can run in parallel with other [P] tasks in the same phase (different files) once the tasks it names in `Depends on` are done.
 - **[Story]**: `[US1]` to `[US4]`, mapping to the four user stories in [spec.md](./spec.md). Setup, Foundational, and Polish tasks have no story label.
 - Every task names the exact file path(s) it touches.
 
 ## Path Conventions
 
-Single-project Python service with a `src/` layout. Source under `src/experiment_runs/`, tests under `tests/`, one test module per source module. See [plan.md § Source Code](./plan.md#source-code-repository-root).
+Single-project Python service with a `src/` layout. Source under `src/experiment_runs/`, tests under `tests/`, roughly one test module per layer. See [plan.md § Source Code](./plan.md#source-code-repository-root).
 
 ---
 
@@ -29,7 +29,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 - [X] T001 Create `pyproject.toml` with dependencies (`fastapi`, `pydantic>=2`, `uvicorn`), a `dev` extra (`pytest`, `httpx`, `httpx2`, `ruff`, `mypy`), the `experiment-runs` console script, and tool settings: pytest `testpaths = ["tests"]`, Ruff rules `E,F,W,I,B,UP,SIM`, mypy `strict = true` with the Pydantic plugin.
 - [X] T002 [P] Create `src/experiment_runs/__init__.py`, `src/experiment_runs/py.typed`, and `tests/__init__.py` so `pip install -e ".[dev]"`, `pytest`, and `mypy` all succeed on an empty project. Later tests then fail for the *right* reason (missing behavior), not missing packages.
 
-**Checkpoint**: `pip install -e ".[dev]" && pytest` reports zero tests; `mypy` and `ruff check .` pass.
+**Checkpoint**: `pip install -e ".[dev]" && pytest` reports zero tests (pytest's exit code 5, \"no tests ran\", is expected here); `mypy` and `ruff check .` pass.
 
 ---
 
@@ -38,7 +38,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 **Purpose**: cross-cutting pieces every story needs: the error hierarchy, the structured logger, settings, and the app skeleton with error mapping. **No user story work starts until this phase is complete.**
 
 - [X] T003 [P] Create `tests/test_errors.py` asserting every error class is an `AppError`, `ValidationError.details` round-trips, and `StoreCorruptError` carries its quarantine path. Test first.
-- [X] T004 [P] Create `src/experiment_runs/errors.py` with `AppError`, `FieldError`, `ValidationError`, `NotFoundError`, `RunAlreadyFinishedError`, `StoreCorruptError`, `StoreWriteError` (constitution III). Depends on T003.
+- [X] T004 [P] Create `src/experiment_runs/errors.py` with the `FieldError` record and the `AppError` classes `ValidationError`, `NotFoundError`, `RunAlreadyFinishedError`, `InvalidRecordError`, `StoreCorruptError`, `StoreUnreadableError`, and `StoreWriteError` (constitution III). Depends on T003.
 - [X] T005 [P] Create `tests/test_logger.py` asserting `log(event, **fields)` writes exactly one JSON line, includes `timestamp` (ISO 8601 UTC) and every field, stringifies unserializable values, and defaults to stdout. Test first.
 - [X] T006 [P] Create `src/experiment_runs/logger.py` with `EventLogger` per FR-016 to FR-018. Standard library only. Depends on T005.
 - [X] T007 [P] Create `tests/test_config.py` asserting defaults (`127.0.0.1`, `8000`, `data/runs.json`), environment overrides, empty values falling back to defaults, and invalid `PORT` raising `ValidationError`. Test first.
@@ -48,7 +48,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 - [X] T010a Create `tests/test_app.py` asserting: every request logs exactly one `request.ok` or `request.error` line with `operation`, `outcome`, `status`, and `run_id` when the path has one (FR-016); unknown paths and wrong methods return the contract's error shape and log `operation: unknown`; write failures return 500 `write failed`; unexpected errors return 500 and are logged with their class; `/docs`, `/openapi.json`, `/metrics`, and `/health` return 404 (FR-019). Test first.
 - [X] T010 Create `src/experiment_runs/app.py` with `create_app(service, logger)`: mounts the router, registers error handlers, adds the request-log middleware, and disables `/docs` and `/openapi.json` (FR-019). Depends on T009, T010a.
 
-**Checkpoint**: foundational tests green. `create_app` builds an app that maps errors and logs requests correctly. (The app tests use the router, so they go green together with the US1 routes in Phase 4.)
+**Checkpoint**: `test_errors.py`, `test_logger.py`, `test_config.py`, and `test_error_handlers.py` are green. `test_app.py` stays red until the US1 routes exist in Phase 4; that is expected, because it exercises `POST /runs`.
 
 ---
 
@@ -62,14 +62,14 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 ### Tests for User Story 2 (write first, must FAIL)
 
-- [X] T011 [P] [US2] Create `tests/test_atomic_write.py` asserting: (a) new content is written and replaces old content; (b) a crash during `write`, `fsync`, or `replace` leaves the target unchanged and no `*.tmp.*` file behind; (c) the temp name contains the pid and a 16-hex-char suffix; (d) the file and its directory are both fsynced; (e) 50 simulated crashes, each at a random one of `open`, `write`, `fsync`, `close`, or `replace`, always leave the old store; (f) killing a real writer process with `SIGKILL` 25 times at random moments never leaves a partial store (POSIX only); (g) the temp file is fsynced before the rename; (h) a failed directory fsync after the rename returns `False` instead of raising; (i) a newly created directory is fsynced too.
+- [X] T011 [P] [US2] Create `tests/test_atomic_write.py` asserting: (a) new content is written and replaces old content; (b) a crash during `write`, `fsync`, or `replace` leaves the target unchanged and no `*.tmp.*` file behind; (c) the temp name contains the pid and a 16-hex-char suffix; (d) the file and its directory are both fsynced; (e) 50 simulated crashes, each at a random one of `open`, `write`, `fsync`, `close`, or `replace`, always leave the old store; (f) killing a real writer process with `SIGKILL` 25 times at random moments never leaves a partial store (POSIX only); (g) the temp file is fsynced before the rename; (h) a failed directory fsync after the rename returns `False` instead of raising; (i) every newly created directory is fsynced, top-down; (j) an existing store keeps its permission bits; (k) on macOS the file is flushed with `F_FULLFSYNC`.
 - [X] T012 [P] [US2] Create `tests/test_models.py` asserting run records round-trip (running and finished), timestamps are UTC with a `Z` suffix, and `Run.from_record` rejects records `to_record` could not have produced (unknown status, blank name, nested hyperparameters, non-finite or overflowing numbers, string or boolean budgets, missing fields, finished without metrics, running with metrics or a finish time). Every rejection raises `InvalidRecordError`.
-- [X] T013 [P] [US2] Create `tests/test_repository.py` asserting: (a) a missing store loads empty and logs `store.initialized`; (b) saved runs load back and log `store.loaded` with the count; (c) unparsable JSON, a wrong `schema_version`, a non-list `runs`, invalid records, and duplicate ids each raise `StoreCorruptError`, rename the file to `runs.json.corrupt.<timestamp>`, and log `store.quarantined`; (d) two quarantines never overwrite each other; (e) the next start after a quarantine is empty; (f) saves go through the atomic-write helper and log `store.write` success; (g) a write failure logs the error class and raises `StoreWriteError`; (h) concurrent saves never overlap; (i) a write whose durability is not confirmed logs `store.write_not_durable`.
+- [X] T013 [P] [US2] Create `tests/test_repository.py` asserting: (a) a missing store loads empty and logs `store.initialized`; (b) saved runs load back and log `store.loaded` with the count; (c) unparsable JSON, a wrong `schema_version`, a non-list `runs`, invalid records, and duplicate ids each raise `StoreCorruptError`, rename the file to `runs.json.corrupt.<timestamp>`, and log `store.quarantined`; (d) two quarantines never overwrite each other; (e) the next start after a quarantine is empty; (f) saves go through the atomic-write helper and log `store.write` success; (g) a write failure logs the error class and raises `StoreWriteError`; (h) concurrent saves never overlap; (i) a write whose durability is not confirmed logs `store.write_not_durable`; (j) integers too long to parse and out-of-range timestamps are quarantined like any corruption; (k) a store that cannot be read (no permission, or a directory) raises `StoreUnreadableError` and is never renamed.
 
 ### Implementation for User Story 2
 
-- [X] T014 [US2] Create `src/experiment_runs/atomic_write.py` with `atomic_write_bytes(target, data)` per [research.md § Decision 1](./research.md). Standard library only. Depends on T011.
-- [X] T015 [US2] Create `src/experiment_runs/models.py` with `Run`, `RunView`, `format_timestamp`, `parse_timestamp`, and `Run.to_record` / `Run.from_record`. No HTTP and no I/O. Depends on T012.
+- [X] T014 [P] [US2] Create `src/experiment_runs/atomic_write.py` with `atomic_write_bytes(target, data)` per [research.md § Decision 1](./research.md). Standard library only. Depends on T011.
+- [X] T015 [P] [US2] Create `src/experiment_runs/models.py` with `Run`, `RunView`, `format_timestamp`, `parse_timestamp`, and `Run.to_record` / `Run.from_record`. No HTTP and no I/O. Depends on T012.
 - [X] T016 [US2] Create `src/experiment_runs/repository.py` with `RunRepository.load()` and `RunRepository.save_all()`, using `atomic_write_bytes` for every write and a lock to serialize writes. It MUST NOT import FastAPI. Depends on T013, T014, T015, T004, T006.
 
 **Checkpoint**: the store persists and reloads runs safely across crashes with no HTTP layer. `pytest tests/test_atomic_write.py tests/test_models.py tests/test_repository.py` is green.
@@ -88,7 +88,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 - [X] T017 [P] [US1] Create `tests/test_service.py` (US1 section) asserting `create` returns a running run with a UUID v4 id, the injected clock's time, and the given hyperparameters; names are trimmed; ids are unique; `list_runs` returns every run; blank names, over-long names, non-finite or excess hyperparameters, and out-of-range budgets raise `ValidationError` naming the field and store nothing; all invalid fields are reported together. Uses a `FakeClock`.
 - [X] T018 [P] [US1] Create `tests/test_routes.py` (US1 section) asserting `POST /runs` returns 201 with every `Run` field from [contracts/openapi.yaml](./contracts/openapi.yaml); hyperparameter types are preserved; a client-supplied `id` is rejected; invalid bodies, missing fields, malformed JSON, and `NaN` return 400 `validation_error`; `GET /runs` returns created runs.
-- [X] T019 [P] [US1] Create `tests/test_main.py` asserting `build()` reports `store_existed` and `run_count`; a corrupt store makes `main()` return 1 after logging `server.start_failed` and the next start succeeds; a bad `PORT` returns 2; a server that cannot start returns 3 and never logs `server.stopped`; a real server process logs `server.started` once listening and exits 0 with `server.stopped` on SIGTERM; a real server on a taken port exits 3 without logging `server.started` (FR-018).
+- [X] T019 [P] [US1] Create `tests/test_main.py` asserting `build()` reports `store_existed` and `run_count`; a corrupt store makes `main()` return 1 after logging `server.start_failed` and the next start succeeds; a bad `PORT` returns 2; a server that cannot start returns 3 and never logs `server.stopped`; a real server process logs `server.started` once listening and exits 0 with `server.stopped` on SIGTERM; a real server on a taken port exits 3 without logging `server.started`; a real server stopped with SIGINT (Ctrl+C) also exits 0 and logs `server.stopped`; an unreadable store exits 4 and is left untouched (FR-013, FR-018).
 
 ### Implementation for User Story 1
 
@@ -111,7 +111,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 ### Tests for User Story 3 (write first, must FAIL)
 
 - [X] T023 [US3] Extend `tests/test_service.py` with: `finish` records metrics and the clock's time; a second `finish` raises `RunAlreadyFinishedError` and keeps the first metrics; empty, non-finite, blank-keyed, or excess metrics raise `ValidationError` and the run stays running; `delete` removes the run; unknown ids raise `NotFoundError` and change nothing; a failed write leaves state unchanged; acknowledged changes survive a restart.
-- [X] T024 [US3] Extend `tests/test_routes.py` with: finish returns 200 with metrics as numbers; a second finish returns 409 `already_finished`; invalid finish bodies (including booleans and strings) return 400; unknown and malformed ids return 404 `not_found`; an invalid body on an unknown id is 400 (the body is validated first); a metric too large for a float is 400; delete returns 204 with an empty body, then 404.
+- [X] T024 [US3] Extend `tests/test_routes.py` with: finish returns 200 with metrics as numbers; a second finish returns 409 `already_finished`; invalid finish bodies (including booleans and strings) return 400; unknown and malformed ids return 404 `not_found`; an invalid body on an unknown id is 400 (the body is validated first); a metric too large for a float is 400; a 405 keeps its `Allow` header; keys named like types (`int`, `str`) keep their names in error details; delete returns 204 with an empty body, then 404.
 
 ### Implementation for User Story 3
 
@@ -137,7 +137,7 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 
 ### Implementation for User Story 4
 
-- [X] T029 [US4] Add `is_stalled` and `order_runs` to `src/experiment_runs/service.py` per [research.md § Decision 7](./research.md) and use them in `list_runs`, `create`, and `finish`. Depends on T027, T028.
+- [X] T029 [US4] Add `is_stalled` and `order_runs` to `src/experiment_runs/service.py` per [research.md § Decision 7](./research.md) and use `order_runs` in `list_runs` and `is_stalled` in `create` (a finished run is never stalled). Depends on T027, T028.
 
 **Checkpoint**: all four user stories independently green. The full quickstart runs end to end.
 
@@ -148,9 +148,9 @@ Single-project Python service with a `src/` layout. Source under `src/experiment
 **Purpose**: final hardening across stories. Every task here depends on all earlier phases.
 
 - [X] T030 [P] Run `mypy`, `ruff check .`, and `ruff format --check .`; confirm zero errors, and that every `Any` or `type: ignore` in `src/` and `tests/` has a justifying comment (constitution II).
-- [X] T031 [P] Extend `tests/test_service.py` with inclusive limit boundaries (200-character names after trimming, 100-character model types and keys, 50 entries, a 10,080-minute budget), a 200-thread concurrent-create test that loses no updates (FR-015), and a 120-run mixed store checking every stalled flag and the stalled-first order (SC-003).
+- [X] T031 [P] Extend `tests/test_service.py` with inclusive limit boundaries (200-character names after trimming, 100-character model types and keys, 50 entries, a 10,080-minute budget), a concurrent-create test (200 creates across 16 threads) that loses no updates (FR-015), type checks that reject what the loader would refuse, and a 120-run mixed store checking every stalled flag and the stalled-first order (SC-003).
 - [X] T032 [P] Create `tests/test_restart_cycle.py`: 100 cycles of reopening the store and applying random creates, finishes, and deletes, asserting nothing acknowledged is ever lost (SC-006).
-- [X] T033 [P] Create `tests/test_perf.py`: seed 1,000 runs, then time 50 iterations of each operation and assert p95 under 100 ms (SC-004). Skipped when `CI_SKIP_PERF` is set, but it must exist and run locally.
+- [X] T033 [P] Create `tests/test_perf.py`: seed 1,000 runs, then time 50 iterations of each operation and assert the 95th-percentile (p95) latency is under 100 ms (SC-004). Skipped when `CI_SKIP_PERF` is set, but it must exist and run locally.
 - [X] T034 [P] Add `README.md` with prerequisites, setup, test, and run sections, and a note that this is a single-user, no-auth service for local use.
 - [X] T035 Manual pass: follow [quickstart.md](./quickstart.md) end to end on a fresh clone. Confirm SC-001 and SC-005 by walking each user story. (SC-002, SC-004, and SC-006 are asserted automatically by T011, T033, and T032.)
 

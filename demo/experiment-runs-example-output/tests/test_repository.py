@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -12,7 +14,11 @@ import pytest
 
 from experiment_runs import atomic_write
 from experiment_runs import repository as repository_module
-from experiment_runs.errors import StoreCorruptError, StoreWriteError
+from experiment_runs.errors import (
+    StoreCorruptError,
+    StoreUnreadableError,
+    StoreWriteError,
+)
 from experiment_runs.models import Run
 from experiment_runs.repository import RunRepository
 from tests.conftest import LogCapture
@@ -187,3 +193,60 @@ def test_a_write_that_is_not_confirmed_durable_is_logged(
     repository.save_all([make_run()])
     assert logs.events("store.write_not_durable")[0]["count"] == 1
     assert logs.events("store.write")[-1]["outcome"] == "success"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        # More digits than Python will parse as an int: json raises ValueError.
+        b'{"schema_version": 1, "runs": [], "x": ' + b"9" * 5000 + b"}",
+    ],
+)
+def test_unparsable_numbers_are_quarantined(
+    store_path: Path, logs: LogCapture, content: bytes
+) -> None:
+    store_path.parent.mkdir(parents=True)
+    store_path.write_bytes(content)
+    with pytest.raises(StoreCorruptError):
+        RunRepository(store_path, logs.logger).load()
+    assert not store_path.exists()
+
+
+@pytest.mark.parametrize(
+    "started_at", ["9999-12-31T23:59:59.000-05:00", "0001-01-01T00:00:00.000+05:00"]
+)
+def test_out_of_range_timestamps_are_quarantined(
+    store_path: Path, logs: LogCapture, started_at: str
+) -> None:
+    record = make_run().to_record()
+    record["started_at"] = started_at
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text(json.dumps({"schema_version": 1, "runs": [record]}))
+    with pytest.raises(StoreCorruptError):
+        RunRepository(store_path, logs.logger).load()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions"
+)
+def test_a_store_that_cannot_be_read_or_moved_is_reported(
+    store_path: Path, logs: LogCapture
+) -> None:
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text("{}")
+    store_path.chmod(0o000)
+    store_path.parent.chmod(0o555)
+    try:
+        with pytest.raises(StoreUnreadableError):
+            RunRepository(store_path, logs.logger).load()
+        assert logs.events("store.unreadable")
+    finally:
+        store_path.parent.chmod(0o755)
+        store_path.chmod(0o644)
+
+
+def test_a_directory_is_not_a_store(tmp_path: Path, logs: LogCapture) -> None:
+    (tmp_path / "runs.json").mkdir()
+    with pytest.raises(StoreUnreadableError):
+        RunRepository(tmp_path / "runs.json", logs.logger).load()
+    assert (tmp_path / "runs.json").is_dir()  # never renamed

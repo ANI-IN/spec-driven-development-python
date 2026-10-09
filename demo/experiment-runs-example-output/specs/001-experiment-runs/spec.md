@@ -123,7 +123,8 @@ carries a correct stalled indicator.
 - **Unknown identifiers**: finish and delete return "not found"; list is unaffected. A malformed identifier is treated the same as an unknown one.
 - **Concurrent writes within the single process**: serialized, so two writes can never interleave and corrupt the store.
 - **Store file missing at startup**: treated as an empty store; the first write creates it atomically.
-- **Store file present but unreadable or corrupted**: startup renames it to `<store>.corrupt.<UTC timestamp>`, logs the event, and exits non-zero so the operator can inspect or restore it. A quarantined file is never overwritten.
+- **Store file present but corrupted** (it can be read but not parsed): startup renames it to `<store>.corrupt.<UTC timestamp>`, logs the event, and exits non-zero so the operator can inspect or restore it. A quarantined file is never overwritten.
+- **Store file present but unreadable** (no permission, or the path is a directory): startup logs the problem and exits non-zero without renaming or changing anything, because fixing access is enough to recover. A store path that is an existing directory is rejected as invalid configuration.
 - **Clock and timezone**: all timestamps are UTC; "stalled" is evaluated against the server's current UTC time at read time, so it is independent of the server's local timezone.
 
 ## Requirements *(mandatory)*
@@ -143,7 +144,7 @@ carries a correct stalled indicator.
 - **FR-010**: System MUST persist every acknowledged create, finish, and delete so it survives a process restart.
 - **FR-011**: System MUST make every persistent write atomic: after any crash the stored state is either the state before the write or the fully applied state after it, never partial or corrupted.
 - **FR-012**: On startup, System MUST load every stored run and expose it through the list operation without loss.
-- **FR-013**: If the store exists but cannot be read or parsed at startup, System MUST (a) rename the file to `<store-path>.corrupt.<UTC timestamp>` so its contents are kept and never overwritten, (b) emit a structured log line naming the failure and the new path, and (c) exit with a non-zero status without starting with an empty store on that launch. The next launch, finding no store, MUST start empty.
+- **FR-013**: If the store exists and can be read but cannot be parsed at startup, System MUST (a) rename the file to `<store-path>.corrupt.<UTC timestamp>` so its contents are kept and never overwritten, (b) emit a structured log line naming the failure and the new path, and (c) exit with a non-zero status without starting with an empty store on that launch. The next launch, finding no store, MUST start empty. If the store exists but cannot be read at all, System MUST log the failure and exit with a distinct non-zero status without renaming or modifying the file.
 - **FR-014**: System MUST NOT require or perform authentication or authorization in this release; every caller is treated as the single owner of every run.
 - **FR-015**: System MUST serialize concurrent write operations within the process so they cannot interleave and corrupt the stored state.
 - **FR-016**: System MUST emit one structured JSON log line to stdout per request outcome, with at least: timestamp, operation (one name each for create, list, finish, and delete; `unknown` for requests that match no operation), outcome (success or the error class), and the run identifier when the request path contains one.

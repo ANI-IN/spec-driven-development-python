@@ -32,16 +32,20 @@ def _response(
     error: str,
     message: str,
     details: list[ErrorDetail] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     body = ErrorResponse(error=error, message=message, details=details)
     return JSONResponse(
-        status_code=status_code, content=body.model_dump(exclude_none=True)
+        status_code=status_code,
+        content=body.model_dump(exclude_none=True),
+        headers=dict(headers) if headers else None,
     )
 
 
-# Pydantic appends the union branch it tried (``int``, ``float``, ...) to the
-# error location; those are not field names.
-_UNION_TAGS = {"str", "int", "float", "bool"}
+# Mapping fields are reported down to the key (``metrics.auc``). Anything
+# deeper is Pydantic naming the union branch it tried (``metrics.auc.int``),
+# so it is cut off; a key that happens to be called ``int`` is kept.
+_MAPPING_FIELDS = {"hyperparameters", "metrics"}
 
 
 # Any: Pydantic's error dictionaries are untyped (values may be any JSON).
@@ -52,10 +56,11 @@ def _field_name(err: Mapping[str, Any]) -> str:
     """
     if err.get("type") == "json_invalid":
         return "body"
-    parts = [str(part) for part in err.get("loc", ()) if part != "body"]
-    while len(parts) > 1 and parts[-1] in _UNION_TAGS:
-        parts.pop()
-    return ".".join(parts) or "body"
+    parts = [str(part) for part in err.get("loc", ())]
+    if parts and parts[0] == "body":
+        parts = parts[1:]
+    depth = 2 if parts and parts[0] in _MAPPING_FIELDS else 1
+    return ".".join(parts[:depth]) or "body"
 
 
 def error_response(exc: AppError) -> JSONResponse:
@@ -100,7 +105,7 @@ def register_error_handlers(app: FastAPI, logger: EventLogger) -> None:
         codes = {404: "not_found", 405: "method_not_allowed"}
         error = codes.get(exc.status_code, "bad_request")
         request.state.error_class = type(exc).__name__
-        return _response(exc.status_code, error, str(exc.detail))
+        return _response(exc.status_code, error, str(exc.detail), headers=exc.headers)
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

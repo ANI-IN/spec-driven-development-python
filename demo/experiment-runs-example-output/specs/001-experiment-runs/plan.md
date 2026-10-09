@@ -63,7 +63,7 @@ Against [.specify/memory/constitution.md](../../.specify/memory/constitution.md)
 |---|-----------|-----------|-----------------------------|
 | I | Tests Before Implementation | PASS | `tasks.md` (next phase) will order every implementation task after a failing-test task. Contract tests and the crash-during-write test are written first. |
 | II | Fully Type-Hinted Code | PASS | `mypy --strict` over `src/` and `tests/` with the Pydantic plugin. Request bodies are typed Pydantic models, so no `Any` is needed at the parse boundary. |
-| III | Typed Exceptions | PASS | `AppError` base with `ValidationError`, `NotFoundError`, `RunAlreadyFinishedError`, `StoreCorruptError`, `StoreWriteError`. One handler module maps classes to HTTP statuses. |
+| III | Typed Exceptions | PASS | `AppError` base with `ValidationError`, `NotFoundError`, `RunAlreadyFinishedError`, `InvalidRecordError`, `StoreCorruptError`, `StoreUnreadableError`, `StoreWriteError`. One handler module maps classes to HTTP statuses. |
 | IV | One Responsibility Per Module | PASS | `routes.py` (FastAPI only), `service.py` (domain only, no FastAPI imports), `repository.py` (JSON file only). Dependencies point routes → service → repository. |
 | V | Data Safety Over Convenience | PASS | `atomic_write.py` is the only writer of persisted state. The service applies a change in memory only after the repository has saved it. |
 

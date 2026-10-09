@@ -10,6 +10,8 @@ from __future__ import annotations
 import contextlib
 import os
 import secrets
+import stat
+import sys
 from pathlib import Path
 
 
@@ -25,23 +27,22 @@ def atomic_write_bytes(target: Path, data: bytes) -> bool:
     the rename has happened the new bytes are the store, so a failure to fsync
     the directory afterwards is not raised: the function returns ``False`` so
     the caller can log that durability is not confirmed. Returns ``True`` when
-    every step succeeded.
+    every step succeeded. An existing target keeps its permission bits.
     """
-    directory_existed = target.parent.is_dir()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not directory_existed:
-        # Make the new directory itself durable before anything goes into it.
-        fsync_directory(target.parent.parent)
+    _make_directories(target.parent)
+    mode = stat.S_IMODE(target.stat().st_mode) if target.exists() else 0o644
     temp = temp_path_for(target)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     try:
-        fd = os.open(temp, flags, 0o644)
+        fd = os.open(temp, flags, mode)
         try:
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, mode)  # os.open's mode is reduced by the umask
             view = memoryview(data)
             while view:
                 written = os.write(fd, view)
                 view = view[written:]
-            os.fsync(fd)
+            flush_to_disk(fd)
         finally:
             os.close(fd)
         os.replace(temp, target)
@@ -54,6 +55,35 @@ def atomic_write_bytes(target: Path, data: bytes) -> bool:
     except OSError:
         return False
     return True
+
+
+def _make_directories(directory: Path) -> None:
+    """Create ``directory`` and any missing parents, each one made durable."""
+    missing: list[Path] = []
+    current = directory
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    for created in reversed(missing):  # top-down: parents before children
+        fsync_directory(created.parent)
+
+
+def flush_to_disk(fd: int) -> None:
+    """Force a file's bytes to stable storage.
+
+    On macOS ``fsync`` only reaches the drive's cache; ``F_FULLFSYNC`` asks the
+    drive to write it out. Other systems use ``fsync``.
+    """
+    if sys.platform == "darwin":
+        import fcntl
+
+        try:
+            fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
+            return
+        except OSError:
+            pass  # some filesystems do not support it; fall back to fsync
+    os.fsync(fd)
 
 
 def fsync_directory(directory: Path) -> None:

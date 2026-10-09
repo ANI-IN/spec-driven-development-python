@@ -241,3 +241,14 @@ def test_field_names_do_not_include_union_branches(
     )
     assert response.status_code == 400
     assert [d["field"] for d in response.json()["details"]] == ["metrics.auc"]
+
+
+@pytest.mark.parametrize("key", ["int", "str", "float", "bool"])
+def test_keys_named_like_types_keep_their_name(
+    client: TestClient, create_payload: Payload, key: str
+) -> None:
+    response = client.post("/runs", json=create_payload(hyperparameters={key: [1]}))
+    assert response.status_code == 400
+    assert [d["field"] for d in response.json()["details"]] == [
+        f"hyperparameters.{key}"
+    ]

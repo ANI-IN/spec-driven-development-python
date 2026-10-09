@@ -11,7 +11,7 @@ import logging
 import math
 import sys
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 LOGGER_NAME = "minitrain"
 
@@ -33,18 +33,41 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=False, default=str, allow_nan=False)
 
 
+# Any: log fields can hold any JSON-like value.
 def _json_safe(value: Any) -> Any:
-    """Strict JSON has no NaN or Infinity, so write them as strings."""
+    """Strict JSON has no NaN or Infinity, so write them as strings, at any depth."""
     if isinstance(value, float) and not math.isfinite(value):
         return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
     return value
+
+
+if TYPE_CHECKING:
+    _StreamHandler = logging.StreamHandler[TextIO]
+else:  # StreamHandler is only subscriptable at runtime on Python 3.11+
+    _StreamHandler = logging.StreamHandler
+
+
+class _CurrentStderrHandler(_StreamHandler):
+    """Writes to whatever ``sys.stderr`` is at emit time, not at creation."""
+
+    @property
+    def stream(self) -> TextIO:
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value: TextIO) -> None:
+        pass  # always follow sys.stderr
 
 
 def get_logger() -> logging.Logger:
     """Return the package logger, writing JSON lines to stderr by default."""
     logger = logging.getLogger(LOGGER_NAME)
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stderr)
+        handler = _CurrentStderrHandler()
         handler.setFormatter(JsonFormatter())
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)

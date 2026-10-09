@@ -23,15 +23,20 @@ def format_timestamp(moment: datetime) -> str:
     return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
+
+
 def parse_timestamp(text: str) -> datetime:
-    """Inverse of :func:`format_timestamp`. Rejects timestamps without a zone."""
+    """Inverse of :func:`format_timestamp`.
+
+    Accepts exactly the stored shape (date, time, fraction, and a zone), on
+    every supported Python version.
+    """
     try:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise InvalidRecordError(f"not an ISO 8601 timestamp: {text!r}") from exc
-    if moment.tzinfo is None:
-        raise InvalidRecordError(f"timestamp has no timezone: {text!r}")
-    return moment.astimezone(timezone.utc)
+        moment = datetime.strptime(text, TIMESTAMP_FORMAT)
+        return moment.astimezone(timezone.utc)
+    except (ValueError, OverflowError) as exc:
+        raise InvalidRecordError(f"not a stored timestamp: {text!r}") from exc
 
 
 @dataclass(frozen=True)

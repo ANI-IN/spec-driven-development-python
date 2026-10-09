@@ -9,7 +9,7 @@ self-contained Python project.
 - src/minitrain/data.py           make_dataset(): small, wide synthetic data that overfits
 - src/minitrain/model.py          LogisticRegression: loss, step, get_params/set_params
 - src/minitrain/trainer.py        train(): the loop the lab changes
-- src/minitrain/logging_utils.py  log_event(): one JSON line per event, always with run_id
+- src/minitrain/logging_utils.py  log_event(): one JSON line per event; training events pass run_id
 - src/minitrain/cli.py            `python -m minitrain` report
 - tests/                          pytest suite (test_docs.py checks Markdown links)
 - lab/                            PRD, spec template, checklist, worksheet
@@ -22,7 +22,8 @@ self-contained Python project.
 - Lint:       `ruff check .` and `ruff format --check .`
 - Type check: `mypy`
 - Run sample: `python -m minitrain`
-- Demo project: run the same commands inside `demo/experiment-runs-example-output/`
+- Demo project: the same install, test, lint, and type-check commands inside
+  `demo/experiment-runs-example-output/`; run it with `python -m experiment_runs`
 
 # Code Style
 - PEP 8, 4-space indentation, line length 88, enforced by Ruff.
