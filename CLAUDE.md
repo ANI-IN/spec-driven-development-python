@@ -8,7 +8,8 @@ self-contained Python project.
 - src/minitrain/config.py         TrainingConfig (learning rate, epochs, batch size, seed)
 - src/minitrain/data.py           make_dataset(): small, wide synthetic data that overfits
 - src/minitrain/model.py          LogisticRegression: loss, step, get_params/set_params
-- src/minitrain/trainer.py        train(): the loop the lab changes
+- src/minitrain/early_stopping.py EarlyStopping settings and the per-run monitor (see spec.md)
+- src/minitrain/trainer.py        train(): the loop, with optional early stopping
 - src/minitrain/logging_utils.py  log_event(): one JSON line per event; training events pass run_id
 - src/minitrain/cli.py            `python -m minitrain` report
 - tests/                          pytest suite (test_docs.py checks Markdown links)

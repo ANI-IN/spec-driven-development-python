@@ -108,7 +108,9 @@ python -m minitrain
 ```
 
 `python -m minitrain` prints a report like this on stdout (the run id
-changes every run; two JSON log lines also go to stderr):
+changes every run; two JSON log lines also go to stderr). On the
+`solution/early-stopping` branch the report also has `stop reason` and
+`returned model` lines (see `spec.md`, AC13):
 
 ```text
 run_id            3f2a9c1d7e4b
