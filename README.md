@@ -145,10 +145,11 @@ you prefer one document.
 | Branch | Contents |
 |---|---|
 | `main` | The starting point. `minitrain` has no early stopping. Do the lab here, on your own `feature/early-stopping-<initials>` branch. |
-| `solution/early-stopping` | A reference solution: a filled-in `spec.md`, `src/minitrain/early_stopping.py`, the changes to `trainer.py` and the CLI, tests for every acceptance criterion, and a completed worksheet. Compare with it after you finish. |
+| `solution/early-stopping` | A reference solution, committed spec first: a first-draft `spec.md`, three `Spec: ...` commits that patch the gaps implementation exposed, then `src/minitrain/early_stopping.py`, the changes to `trainer.py` and the CLI, a test for every acceptance criterion, and a completed worksheet. Compare with it after you finish. |
 
 ```bash
 git fetch origin
+git log --oneline main..origin/solution/early-stopping
 git diff main origin/solution/early-stopping --stat
 ```
 
